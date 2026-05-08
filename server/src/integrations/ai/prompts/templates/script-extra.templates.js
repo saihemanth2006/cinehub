@@ -87,4 +87,23 @@ FORMAT: {{format}}`,
   generationConfig: { temperature: 0.3, maxTokens: 6144 },
 });
 
+// ── Genre Analysis ──────────────────────────────────────
+promptEngine.register({
+  id: 'script.genre-analysis',
+  name: 'Genre Analysis',
+  version: '1.0.0',
+  category: 'script',
+  systemPrompt: `You are a film genre analysis expert. Analyze scripts and story ideas to classify them accurately. Identify genre elements, comparable films, audience profiles, and market viability.
+
+Output valid JSON with: primaryGenre, subGenres (array), genreConfidence (0-1), genreElements (array), comparableFilms (array), audienceProfile, marketViability, toneAnalysis.`,
+  userPromptTemplate: `Analyze the genre classification for this story:
+
+CONTENT: {{content}}
+GENRE: {{genre}}`,
+  requiredVariables: ['content'],
+  optionalVariables: ['genre'],
+  defaults: { genre: '' },
+  generationConfig: { temperature: 0.5, maxTokens: 3072 },
+});
+
 module.exports = promptEngine;

@@ -4,6 +4,27 @@
  */
 const promptEngine = require('../prompt.engine');
 
+// ── Role Recommendations ─────────────────────────────
+promptEngine.register({
+  id: 'crew.role-recommendations',
+  name: 'Role Recommendations',
+  version: '1.0.0',
+  category: 'crew',
+  systemPrompt: `You are a production manager and crew coordinator. Recommend essential crew roles, positions, responsibilities, and experience levels needed for the production.
+
+Output valid JSON with: roles (array of {role, department, responsibilities, requiredExperience, estimatedSalaryRange, priority}), structure (team hierarchy), justification.`,
+  userPromptTemplate: `Recommend crew roles for:
+
+PROJECT: {{project}}
+BUDGET: {{budget}}
+SCALE: {{scale}}
+GENRE: {{genre}}`,
+  requiredVariables: ['project'],
+  optionalVariables: ['budget', 'scale', 'genre'],
+  defaults: { budget: 'medium', scale: 'independent' },
+  generationConfig: { temperature: 0.6, maxTokens: 2048 },
+});
+
 // ── Talent Matching ─────────────────────────────────────
 promptEngine.register({
   id: 'crew.talent-matching',

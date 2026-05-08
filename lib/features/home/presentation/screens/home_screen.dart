@@ -6,6 +6,7 @@ import '../../../../core/theme/theme.dart';
 import '../../../../core/router/routes.dart';
 import '../../../../shared/widgets/cards/cards.dart';
 import '../../../../shared/widgets/layout/layout_widgets.dart';
+import '../../../../shared/widgets/layout/responsive_layout.dart';
 import '../../../../shared/widgets/media/cached_avatar.dart';
 import '../../../../shared/widgets/project/project_widgets.dart';
 
@@ -23,20 +24,23 @@ class HomeScreen extends StatelessWidget {
             floating: true,
             backgroundColor: AppColors.background,
             surfaceTintColor: Colors.transparent,
-            title: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    gradient: AppGradients.primary,
-                    borderRadius: AppRadii.borderSm,
+            title: SizedBox(
+              width: 200,
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      gradient: AppGradients.primary,
+                      borderRadius: AppRadii.borderSm,
+                    ),
+                    child: const Icon(Icons.movie_filter_rounded, color: Colors.white, size: 18),
                   ),
-                  child: const Icon(Icons.movie_filter_rounded, color: Colors.white, size: 18),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Text('CineHub', style: AppTypography.h1),
-              ],
+                  const SizedBox(width: AppSpacing.sm),
+                  Text('CineHub', style: AppTypography.h1),
+                ],
+              ),
             ),
             actions: [
               IconButton(
@@ -58,7 +62,7 @@ class HomeScreen extends StatelessWidget {
                 icon: const Icon(Iconsax.message, size: 22),
                 onPressed: () => context.push(Routes.conversations),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 8),
             ],
           ),
 
@@ -113,21 +117,34 @@ class HomeScreen extends StatelessWidget {
 
           // ── Quick Actions ───────────────────────────────────
           SliverToBoxAdapter(
-            child: Padding(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  _Action(icon: Iconsax.edit, label: 'New\nScript', color: AppColors.primary,
-                      onTap: () => context.push(Routes.scriptGenerator)),
+                  SizedBox(
+                    width: 80,
+                    child: _Action(icon: Iconsax.edit, label: 'New\nScript', color: AppColors.primary,
+                        onTap: () => context.push(Routes.scriptGenerator)),
+                  ),
                   const SizedBox(width: 10),
-                  _Action(icon: Iconsax.folder_add, label: 'New\nProject', color: AppColors.accent,
-                      onTap: () => context.push('/projects')),
+                  SizedBox(
+                    width: 80,
+                    child: _Action(icon: Iconsax.folder_add, label: 'New\nProject', color: AppColors.accent,
+                        onTap: () => context.push('/projects')),
+                  ),
                   const SizedBox(width: 10),
-                  _Action(icon: Iconsax.search_normal, label: 'Find\nTalent', color: AppColors.secondary,
-                      onTap: () => context.go(Routes.discover)),
+                  SizedBox(
+                    width: 80,
+                    child: _Action(icon: Iconsax.search_normal, label: 'Find\nTalent', color: AppColors.secondary,
+                        onTap: () => context.go(Routes.discover)),
+                  ),
                   const SizedBox(width: 10),
-                  _Action(icon: Iconsax.briefcase, label: 'Browse\nJobs', color: AppColors.success,
-                      onTap: () => context.go(Routes.opportunities)),
+                  SizedBox(
+                    width: 80,
+                    child: _Action(icon: Iconsax.briefcase, label: 'Browse\nJobs', color: AppColors.success,
+                        onTap: () => context.go(Routes.opportunities)),
+                  ),
                 ],
               ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
             ),
@@ -218,23 +235,21 @@ class _Action extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.08),
-            borderRadius: AppRadii.borderLg,
-            border: Border.all(color: color.withValues(alpha: 0.15)),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 22),
-              const SizedBox(height: 6),
-              Text(label, style: AppTypography.labelSmall.copyWith(color: color), textAlign: TextAlign.center),
-            ],
-          ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: AppRadii.borderLg,
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text(label, style: AppTypography.labelSmall.copyWith(color: color), textAlign: TextAlign.center),
+          ],
         ),
       ),
     );

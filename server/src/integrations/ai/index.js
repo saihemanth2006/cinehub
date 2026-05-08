@@ -21,8 +21,9 @@ const workflowRegistry = require('./workflows/workflow.registry');
 // Import template registry to ensure all templates are registered at module load
 require('./prompts/template.registry');
 
-// Import workflow definitions to register all workflows
-require('./workflows/workflow.definitions');
+// Import and initialize workflow definitions to register all workflows
+const { initializeWorkflows } = require('./workflows/workflows.init');
+initializeWorkflows();
 
 // ── Singleton Initialization ────────────────────────────
 

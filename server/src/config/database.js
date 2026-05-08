@@ -4,9 +4,12 @@
  * connection pooling, and graceful shutdown hooks.
  */
 const mongoose = require('mongoose');
+const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const env = require('./env');
 const logger = require('./logger');
+
+let mongoServer = null;
 
 /** @type {mongoose.ConnectOptions} */
 const MONGO_OPTIONS = {
@@ -23,9 +26,24 @@ const RETRY_DELAY_MS = 3000;
 
 /**
  * Connects to MongoDB with exponential backoff retries.
+ * Uses mongodb-memory-server for test environments.
  * @returns {Promise<mongoose.Connection>}
  */
 async function connectDatabase() {
+  let mongoUri = env.db.uri;
+  
+  // Start in-memory MongoDB for testing
+  if (env.isTest || !env.db.uri || env.db.uri.includes('localhost:27017')) {
+    try {
+      mongoServer = await MongoMemoryServer.create();
+      mongoUri = mongoServer.getUri();
+      logger.info('[DB] 🔧 Starting mongodb-memory-server for testing...');
+    } catch (err) {
+      logger.error(`[DB] ❌ Failed to start in-memory MongoDB: ${err.message}`);
+      throw err;
+    }
+  }
+
   let attempt = 0;
 
   while (attempt < MAX_RETRIES) {
@@ -33,8 +51,8 @@ async function connectDatabase() {
       attempt += 1;
       logger.info(`[DB] Connection attempt ${attempt}/${MAX_RETRIES}...`);
 
-      await mongoose.connect(env.db.uri, MONGO_OPTIONS);
-      logger.info(`[DB] ✅ Connected to MongoDB — ${maskUri(env.db.uri)}`);
+      await mongoose.connect(mongoUri, MONGO_OPTIONS);
+      logger.info(`[DB] ✅ Connected to MongoDB — ${maskUri(mongoUri)}`);
 
       _attachConnectionListeners();
       return mongoose.connection;
@@ -55,12 +73,20 @@ async function connectDatabase() {
 
 /**
  * Gracefully closes the MongoDB connection.
+ * Stops in-memory server if it was running.
  * @returns {Promise<void>}
  */
 async function disconnectDatabase() {
   try {
     await mongoose.connection.close();
     logger.info('[DB] 🔌 Connection closed gracefully.');
+    
+    // Stop in-memory MongoDB server if it was created
+    if (mongoServer) {
+      await mongoServer.stop();
+      logger.info('[DB] 🔧 mongodb-memory-server stopped.');
+      mongoServer = null;
+    }
   } catch (err) {
     logger.error(`[DB] Error during disconnect: ${err.message}`);
     throw err;

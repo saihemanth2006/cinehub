@@ -40,6 +40,30 @@ const { logger } = require('../../../config');
 
 const router = express.Router();
 
+// ══════════════════════════════════════════════════════════
+// ═  TEST ENDPOINT (no auth required)
+// ══════════════════════════════════════════════════════════
+
+/**
+ * POST /ai/test-generate
+ * Test AI generation without authentication (development only)
+ */
+router.post(
+  '/test-generate',
+  validate(validation.unifiedGenerate),
+  catchAsync(async (req, res) => {
+    logger.info(`[AI API] TEST generate: ${req.body.module}::${req.body.task}`);
+
+    // Mock user for testing
+    req.user = { _id: 'test-user-123' };
+    req.requestId = req.id || 'test-req-' + Date.now();
+
+    const result = await aiController.generate(req);
+
+    ApiResponse.ok(result, 'AI generation successful').send(res);
+  }),
+);
+
 // All AI routes require authentication
 router.use(authenticate());
 

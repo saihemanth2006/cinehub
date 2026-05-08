@@ -62,7 +62,7 @@ final apiKey = Platform.environment['GEMINI_API_KEY']!;
 Pass the API key directly when creating the screen:
 
 ```dart
-final apiKey = 'AIzaSyBi7x-m1xNWbRLiZaiFpMyG4oBTyEFqwRE';
+final apiKey = 'AIzaSyBbpB2fBJbYj443ffE4WFDy2qnF4V4zdLg';
 ```
 
 ### 3. Important: Never Commit API Keys

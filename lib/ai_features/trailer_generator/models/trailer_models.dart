@@ -111,6 +111,8 @@ class GeneratedTrailer {
   final String musicSuggestion;
   final String analysis;
   final DateTime generatedAt;
+  String? runwayTaskId; // Runway ML task ID for video enhancement
+  String? generatedVideoUrl; // URL to the generated trailer video
 
   GeneratedTrailer({
     required this.id,
@@ -122,6 +124,8 @@ class GeneratedTrailer {
     required this.musicSuggestion,
     required this.analysis,
     required this.generatedAt,
+    this.runwayTaskId,
+    this.generatedVideoUrl,
   });
 
   factory GeneratedTrailer.fromJson(Map<String, dynamic> json) {
@@ -140,6 +144,8 @@ class GeneratedTrailer {
       musicSuggestion: json['musicSuggestion'] ?? '',
       analysis: json['analysis'] ?? '',
       generatedAt: DateTime.now(),
+      runwayTaskId: json['runwayTaskId'],
+      generatedVideoUrl: json['generatedVideoUrl'],
     );
   }
 
@@ -153,6 +159,8 @@ class GeneratedTrailer {
     'musicSuggestion': musicSuggestion,
     'analysis': analysis,
     'generatedAt': generatedAt.toIso8601String(),
+    'runwayTaskId': runwayTaskId,
+    'generatedVideoUrl': generatedVideoUrl,
   };
 }
 

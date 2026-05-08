@@ -250,7 +250,7 @@ import 'package:cinehubapp/ai_features/ai_features.dart';
 // Navigate to trailer generator
 Navigator.push(context, MaterialPageRoute(
   builder: (context) => TrailerGeneratorScreen(
-    apiKey: 'AIzaSyBi7x-m1xNWbRLiZaiFpMyG4oBTyEFqwRE',
+    apiKey: 'AIzaSyBbpB2fBJbYj443ffE4WFDy2qnF4V4zdLg',
   ),
 ));
 ```

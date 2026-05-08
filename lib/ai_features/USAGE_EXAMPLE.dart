@@ -9,7 +9,7 @@ import 'package:cinehubapp/ai_features/ai_features.dart';
 import 'package:flutter/material.dart';
 
 // STEP 2: Define your API key (store securely - see README.md for best practices)
-const String GEMINI_API_KEY = 'AIzaSyBi7x-m1xNWbRLiZaiFpMyG4oBTyEFqwRE';
+const String GEMINI_API_KEY = 'AIzaSyBbpB2fBJbYj443ffE4WFDy2qnF4V4zdLg';
 
 // STEP 3: Navigate to the AI Script Generator Screen
 class ExampleNavigationToAIGenerator {
@@ -151,7 +151,7 @@ class ExampleHomeScreenIntegration extends StatelessWidget {
 // For production, use environment variables instead:
 //
 // 1. Add to .env file (add .env to .gitignore):
-//    GEMINI_API_KEY=AIzaSyBi7x-m1xNWbRLiZaiFpMyG4oBTyEFqwRE
+//    GEMINI_API_KEY=AIzaSyBbpB2fBJbYj443ffE4WFDy2qnF4V4zdLg
 //
 // 2. Load at app startup (use flutter_dotenv package):
 //    import 'package:flutter_dotenv/flutter_dotenv.dart';

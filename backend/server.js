@@ -35,12 +35,18 @@ let User = null;
 const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://hemanth:cinehub@cluster0.astjpnx.mongodb.net';
 try {
   mongoose = require('mongoose');
-  // connect to the requested database name (default: cine_hub)
-  const dbName = process.env.MONGODB_DBNAME || 'cine_hub';
-  mongoose.connect(mongoUri, { dbName, useNewUrlParser: true, useUnifiedTopology: true })
-    .then(() => console.log(`Connected to MongoDB database: ${dbName}`))
-    .catch(err => console.warn('MongoDB connection warning:', err && err.message ? err.message : err));
   User = require('./models/User');
+  // Load social models if present
+  try {
+    var Follow = require('./models/Follow');
+    var Post = require('./models/Post');
+    var Like = require('./models/Like');
+    var Comment = require('./models/Comment');
+    var Conversation = require('./models/Conversation');
+    var Message = require('./models/Message');
+  } catch (e) {
+    // models may not be present yet
+  }
 } catch (e) {
   console.warn('Mongoose not installed or failed to load:', e && e.message ? e.message : e);
 }
@@ -49,6 +55,8 @@ try {
 const otps = new Map(); // phone -> { code, expiresAt }
 // In-memory store for recently verified phones (set by /verify-otp). short TTL
 const verifiedPhones = new Map(); // phone -> expiresAt
+// In-memory token blacklist for logout (token -> expiresAt). Use Redis in production.
+const blacklistedTokens = new Map();
 
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -164,9 +172,11 @@ app.post('/verify-otp', (req, res) => {
     if (entry.code !== otp) return res.status(400).json({ ok: false, error: 'invalid_otp' });
 
     // Successful verification
+    // mark as verified for short period to allow /register to complete
+    verifiedPhones.set(toPhone, Date.now() + 5 * 60 * 1000); // 5 minutes
+    // delete any existing otps stored
     otps.delete(toPhone);
-    // TODO: create user record or issue JWT token
-    return res.json({ ok: true, message: 'verified' });
+    return res.json({ ok: true, message: 'verified (fallback)' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, error: 'internal_error' });
@@ -230,6 +240,15 @@ function authenticateToken(req, res, next) {
   const token = parts[1];
   try {
     const jwt = require('jsonwebtoken');
+    // cleanup expired blacklisted tokens lazily (small map)
+    const nowTs = Date.now();
+    for (const [t, exp] of blacklistedTokens) {
+      if (exp <= nowTs) blacklistedTokens.delete(t);
+    }
+    // check blacklist
+    const blackExp = blacklistedTokens.get(token);
+    if (blackExp && blackExp > nowTs) return res.status(401).json({ ok: false, error: 'token_revoked' });
+
     const payload = jwt.verify(token, jwtSecret);
     req.user = payload; // attach payload to request
     next();
@@ -237,6 +256,32 @@ function authenticateToken(req, res, next) {
     return res.status(401).json({ ok: false, error: 'invalid_token' });
   }
 }
+
+// Logout endpoint: blacklists the presented token so it cannot be used again
+app.post('/logout', authenticateToken, (req, res) => {
+  try {
+    const auth = req.headers && req.headers.authorization;
+    if (!auth) return res.status(400).json({ ok: false, error: 'missing_authorization' });
+    const parts = auth.split(' ');
+    if (parts.length !== 2) return res.status(400).json({ ok: false, error: 'invalid_authorization' });
+    const token = parts[1];
+    try {
+      const jwt = require('jsonwebtoken');
+      // decode to get expiry; do not verify again (already verified by middleware)
+      const decoded = jwt.decode(token) || {};
+      const exp = decoded.exp ? decoded.exp * 1000 : Date.now() + (24 * 3600 * 1000);
+      blacklistedTokens.set(token, exp);
+      return res.json({ ok: true, message: 'logged_out' });
+    } catch (err) {
+      // fallback: blacklist for 24 hours
+      blacklistedTokens.set(token, Date.now() + (24 * 3600 * 1000));
+      return res.json({ ok: true, message: 'logged_out' });
+    }
+  } catch (e) {
+    console.error('logout error:', e && e.message ? e.message : e);
+    return res.status(500).json({ ok: false, error: 'logout_failed' });
+  }
+});
 
 // Protected route to get current user info
 app.get('/me', authenticateToken, async (req, res) => {
@@ -339,16 +384,96 @@ app.post('/register', async (req, res) => {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-const server = app.listen(port, () => {
-  console.log(`CineHub OTP backend listening on ${port}`);
-});
+// Start server after attempting MongoDB connection so queries don't race before ready
+function startServer() {
+  // create HTTP server so we can attach socket.io
+  const http = require('http');
+  const server = http.createServer(app);
+  // try to attach Socket.io if available
+  let io = null;
+  try {
+    const { Server } = require('socket.io');
+    io = new Server(server, { cors: { origin: '*' } });
 
-server.on('error', (err) => {
-  if (err && err.code === 'EADDRINUSE') {
-    console.error(`Port ${port} is already in use. Another process is listening on this port.`);
-    console.error('Use: netstat -ano | findstr :4000  and taskkill /PID <pid> /F to free the port.');
-    process.exit(1);
+    io.on('connection', (socket) => {
+      console.log('socket connected:', socket.id);
+
+      socket.on('join_user', (userId) => {
+        try { socket.join(String(userId)); } catch (e) {}
+      });
+
+      socket.on('join_conversation', (conversationId) => {
+        try { socket.join(String(conversationId)); } catch (e) {}
+      });
+
+      socket.on('send_message', async (payload) => {
+        // payload: { conversationId, sender, text }
+        try {
+          const { conversationId, sender, text } = payload || {};
+          if (!conversationId || !sender || !text) return;
+          if (typeof Message !== 'undefined') {
+            const msg = await Message.create({ conversation: conversationId, sender, text });
+            if (typeof Conversation !== 'undefined') {
+              await Conversation.findByIdAndUpdate(conversationId, { lastMessage: text, updatedAt: Date.now() });
+              const conv = await Conversation.findById(conversationId).lean();
+              // emit to conversation room
+              io.to(String(conversationId)).emit('message', msg);
+              // also emit to participant user rooms
+              if (conv && conv.participants) {
+                conv.participants.forEach(pid => io.to(String(pid)).emit('message', msg));
+              }
+            } else {
+              io.to(String(conversationId)).emit('message', msg);
+            }
+          }
+        } catch (e) {
+          console.error('socket send_message error:', e && e.message ? e.message : e);
+        }
+      });
+    });
+  } catch (e) {
+    console.warn('Socket.io not available; realtime chat disabled.');
   }
-  console.error('Server error:', err);
-  process.exit(1);
-});
+
+    // mount social routes with io so they can emit realtime events
+    try {
+      const socialRouterFactory = require('./routes/social');
+      const socialRouter = socialRouterFactory({ authenticateToken, models: { User, Follow, Post, Like, Comment, Conversation, Message }, io });
+      app.use('/api', socialRouter);
+    } catch (e) {
+      console.warn('Social routes not loaded at server start:', e && e.message ? e.message : e);
+    }
+
+  server.listen(port, () => {
+    console.log(`CineHub OTP backend listening on ${port}`);
+  });
+
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`Port ${port} is already in use. Another process is listening on this port.`);
+      console.error('Use: netstat -ano | findstr :' + port + '  and taskkill /PID <pid> /F to free the port.');
+      process.exit(1);
+    }
+    console.error('Server error:', err);
+    process.exit(1);
+  });
+}
+
+// If mongoose is available, try to connect first. Otherwise start server immediately.
+if (mongoose) {
+  const dbName = process.env.MONGODB_DBNAME || 'cine_hub';
+  mongoose.connect(mongoUri, { dbName, useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => {
+      console.log(`Connected to MongoDB database: ${dbName}`);
+      // social routes will be mounted when server starts so Socket.io can be injected
+      startServer();
+    })
+    .catch(err => {
+      console.warn('MongoDB connection warning:', err && err.message ? err.message : err);
+      console.warn('The server will still start, but requests requiring MongoDB may fail.');
+      startServer();
+    });
+} else {
+  console.warn('Mongoose not available; starting server without DB connection.');
+  startServer();
+}

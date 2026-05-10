@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../models/models.dart';
 import '../../widgets/collaborate_dialog.dart';
+import 'profile_page.dart';
+import '../../services/auth_service.dart';
 
 class ProfileDetailsPage extends StatefulWidget {
   final ProfileData profile;
@@ -20,11 +22,13 @@ class ProfileDetailsPage extends StatefulWidget {
 
 class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
   late bool _requested;
+  late int _followersCount;
 
   @override
   void initState() {
     super.initState();
     _requested = widget.initialRequested;
+    _followersCount = widget.profile.followers;
   }
 
   void _showCollabPopup() {
@@ -39,33 +43,71 @@ class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
         child: FadeTransition(opacity: a, child: child),
       ),
       pageBuilder: (_, __, ___) => CollaborateDialog(
-        onConfirm: () {
-          setState(() => _requested = true);
-          widget.onCollaborateRequested?.call();
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xff111111),
-            margin: const EdgeInsets.all(16),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
-            content: Row(children: [
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                      colors: [Color(0xffFF8C00), Color(0xffFF3D00)]),
+        onConfirm: () async {
+          // try to follow the profile's user via backend
+          final auth = AuthService();
+          final target = widget.profile.id.isNotEmpty ? widget.profile.id : widget.profile.name;
+          bool ok = false;
+          try {
+            final resp = await auth.follow(target);
+            ok = resp == true;
+          } catch (e) {
+            ok = false;
+          }
+          if (ok) {
+            setState(() {
+              _requested = true;
+              _followersCount = _followersCount + 1;
+            });
+            widget.onCollaborateRequested?.call();
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: const Color(0xff111111),
+              margin: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              content: Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                        colors: [Color(0xffFF8C00), Color(0xffFF3D00)]),
+                  ),
+                  child: const Icon(Icons.check_rounded,
+                      size: 13, color: Colors.white),
                 ),
-                child: const Icon(Icons.check_rounded,
-                    size: 13, color: Colors.white),
-              ),
-              const SizedBox(width: 10),
-              const Text("Collaboration request sent! 🎬",
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-            ]),
-            duration: const Duration(seconds: 3),
-          ));
+                const SizedBox(width: 10),
+                const Text("Collaboration request sent! 🎬",
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ]),
+              duration: const Duration(seconds: 3),
+            ));
+          } else {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: const Color(0xff111111),
+              margin: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              content: Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.redAccent,
+                  ),
+                  child: const Icon(Icons.error_outline, size: 13, color: Colors.white),
+                ),
+                const SizedBox(width: 10),
+                const Text("Failed to send request",
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ]),
+              duration: const Duration(seconds: 3),
+            ));
+          }
         },
       ),
     );
@@ -233,22 +275,25 @@ class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Stats row
-                  Row(children: [
-                    _stat("${p.projects}", "Projects",
-                        Icons.movie_creation, p),
-                    const SizedBox(width: 12),
-                    _stat("${p.rating}", "Rating", Icons.star_rounded, p),
-                    const SizedBox(width: 12),
-                    _stat(
-                      p.followers > 999
-                          ? "${(p.followers / 1000).toStringAsFixed(1)}K"
-                          : "${p.followers}",
-                      "Followers",
-                      Icons.people_rounded,
-                      p,
-                    ),
-                  ]),
+                          // Stats row
+                            Row(children: [
+                              _stat("${p.projects}", "Projects",
+                                  Icons.movie_creation, p),
+                              const SizedBox(width: 12),
+                              _stat("${p.rating}", "Rating", Icons.star_rounded, p),
+                              const SizedBox(width: 12),
+                              GestureDetector(
+                                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => FollowersPage())),
+                                child: _stat(
+                                  _followersCount > 999
+                                      ? "${(_followersCount / 1000).toStringAsFixed(1)}K"
+                                      : "$_followersCount",
+                                  "Followers",
+                                  Icons.people_rounded,
+                                  p,
+                                ),
+                              ),
+                            ]),
 
                   const SizedBox(height: 26),
 

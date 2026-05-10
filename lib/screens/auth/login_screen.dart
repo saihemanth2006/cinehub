@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../../services/auth_service.dart';
 
 import '../main_screen.dart';
 
@@ -34,6 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
         if (body is Map && body['ok'] == true) {
+          // save token + user in AuthService
+          AuthService().setFromLogin(body);
           // Call callback or navigate to main screen
           if (!mounted) return;
           if (widget.onLoggedIn != null) {
@@ -182,6 +185,19 @@ class _SignupScreenState extends State<SignupScreen> {
         final parsed = jsonDecode(resp.body);
         if (parsed is Map && parsed['ok'] == true) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created')));
+          // try to auto-login so we get a token and user stored
+          try {
+            final lid = _phone.text.trim();
+            final lpwd = _password.text;
+            final luri = Uri.parse('http://localhost:4000/login');
+            final lresp = await http.post(luri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({'identifier': lid, 'password': lpwd}));
+            if (lresp.statusCode == 200) {
+              final lbody = jsonDecode(lresp.body);
+              if (lbody is Map && lbody['ok'] == true) {
+                AuthService().setFromLogin(lbody);
+              }
+            }
+          } catch (_) {}
           if (!mounted) return;
           if (widget.onSignedUp != null) {
             widget.onSignedUp!(context);

@@ -81,7 +81,7 @@ class ScriptGenerationResponse {
     required this.shotSuggestions,
     required this.generatedAt,
   });
-
+  
   factory ScriptGenerationResponse.fromJson(Map<String, dynamic> json) {
     return ScriptGenerationResponse(
       storyOutline: json['storyOutline'] ?? '',

@@ -140,49 +140,286 @@ class _FeaturedCreatorCard extends StatelessWidget {
   }
 }
 
-class _CreatorCard extends StatelessWidget {
+class _CreatorCard extends StatefulWidget {
   final int index;
   const _CreatorCard({required this.index});
 
   static const _names = ['Alex Rivera', 'Mia Tanaka', 'James Wright', 'Priya Sharma', 'Omar Hassan', 'Luna Park', 'Dev Patel', 'Zara Kim'];
   static const _roles = ['Director', 'Editor', 'VFX Artist', 'Screenwriter', 'Cinematographer', 'Sound Design', 'Producer', 'Actor'];
   static const _ratings = ['4.9', '4.8', '4.7', '4.9', '4.6', '4.8', '4.7', '4.9'];
+  static const _location = ['Mumbai, IN', 'Tokyo, JP', 'LA, USA', 'Delhi, IN', 'Cairo, EG', 'Seoul, KR', 'Bangalore, IN', 'Seoul, KR'];
+  static const _skills = [
+    ['Directing', 'Cinematography'],
+    ['Editing', 'Color Grading'],
+    ['VFX', 'Motion Graphics'],
+    ['Writing', 'Script Analysis'],
+    ['Cinematography', 'Lighting'],
+    ['Audio Mix', 'Sound Effects'],
+    ['Project Management', 'Budgeting'],
+    ['Acting', 'Character Work'],
+  ];
+
+  @override
+  State<_CreatorCard> createState() => _CreatorCardState();
+}
+
+class _CreatorCardState extends State<_CreatorCard> with SingleTickerProviderStateMixin {
+  late AnimationController _scaleCtrl;
+  final bool _isHovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scaleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scaleCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SurfaceCard(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        children: [
-          CachedAvatar(name: _names[index], size: 56),
-          const SizedBox(height: AppSpacing.md),
-          Text(_names[index], style: AppTypography.labelLarge, textAlign: TextAlign.center),
-          const SizedBox(height: AppSpacing.xxs),
-          Text(_roles[index], style: AppTypography.caption),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+    final names = _CreatorCard._names;
+    final roles = _CreatorCard._roles;
+    final ratings = _CreatorCard._ratings;
+    final locations = _CreatorCard._location;
+    final skillsList = _CreatorCard._skills;
+    final index = widget.index;
+
+    return GestureDetector(
+      onTapDown: (_) {
+        _scaleCtrl.forward();
+      },
+      onTapUp: (_) {
+        _scaleCtrl.reverse();
+      },
+      onTapCancel: () {
+        _scaleCtrl.reverse();
+      },
+      onTap: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Viewing ${names[index]}\'s profile'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: AppColors.primary,
+          ),
+        );
+      },
+      child: ScaleTransition(
+        scale: Tween(begin: 1.0, end: 0.95).animate(
+          CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeOut),
+        ),
+        child: SurfaceCard(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Iconsax.star1, size: 14, color: AppColors.accent),
-              const SizedBox(width: AppSpacing.xxs),
-              Text(_ratings[index], style: AppTypography.labelMedium.copyWith(color: AppColors.accent)),
+              // ── Header with avatar and badge ────────────────
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CachedAvatar(name: names[index], size: 48),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          names[index],
+                          style: AppTypography.labelMedium.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(Iconsax.star1, size: 12, color: AppColors.accent),
+                            const SizedBox(width: 2),
+                            Text(
+                              ratings[index],
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.accent,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.successMuted,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Verified',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.success,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+
+              // ── Role and location ───────────────────────────
+              Text(
+                roles[index],
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  Icon(Iconsax.location, size: 12, color: AppColors.textTertiary),
+                  const SizedBox(width: 4),
+                  Text(
+                    locations[index],
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+
+              // ── Skills ──────────────────────────────────────
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: skillsList[index].take(2).map((skill) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.background.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: AppColors.border.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Text(
+                      skill,
+                      style: AppTypography.caption.copyWith(
+                        fontSize: 9,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const Spacer(),
+
+              // ── Action button ───────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                height: 36,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: AppGradients.primary,
+                    borderRadius: AppRadii.borderMd,
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => Center(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 20),
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceElevated,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: AppColors.primary.withValues(alpha: 0.1),
+                                  ),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Collaborate with ${names[index]}',
+                                      style: AppTypography.h2,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      '${roles[index]} from ${locations[index]}',
+                                      style: AppTypography.bodySmall.copyWith(
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('Cancel'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: AppColors.primary,
+                                            ),
+                                            onPressed: () {
+                                              Navigator.pop(context);
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Collaboration request sent to ${names[index]}!'),
+                                                  backgroundColor: AppColors.success,
+                                                ),
+                                              );
+                                            },
+                                            child: const Text(
+                                              'Send Request',
+                                              style: TextStyle(color: Colors.white),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      borderRadius: AppRadii.borderMd,
+                      child: Center(
+                        child: Text(
+                          'Collaborate',
+                          style: AppTypography.labelSmall.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
-          const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () {},
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                side: const BorderSide(color: AppColors.border, width: 0.5),
-                shape: RoundedRectangleBorder(borderRadius: AppRadii.borderMd),
-              ),
-              child: Text('View Profile', style: AppTypography.labelSmall.copyWith(color: AppColors.primary)),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
+

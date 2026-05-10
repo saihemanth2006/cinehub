@@ -160,38 +160,233 @@ class _FeaturedJob extends StatelessWidget {
   }
 }
 
-class _JobCard extends StatelessWidget {
+class _JobCard extends StatefulWidget {
   final int index;
   const _JobCard({required this.index});
 
   static const _titles = ['VFX Supervisor', 'Film Editor', 'Sound Designer', 'Script Supervisor', 'Color Grader', 'Production Mgr'];
   static const _companies = ['Pixar Studios', 'Netflix India', 'Dolby Labs', 'Warner Bros', 'DaVinci Post', 'Yash Raj Films'];
+  static const _types = ['Feature Film', 'Series', 'Commercial', 'Documentary', 'Music Video', 'Corporate'];
+  static const _salary = ['₹15-18L/month', '₹12-15L/month', '₹10-13L/month', '₹11-14L/month', '₹13-16L/month', '₹14-17L/month'];
+  static const _locations = ['Mumbai, IN', 'Los Angeles, USA', 'London, UK', 'Delhi, IN', 'Vancouver, CA', 'Sydney, AU'];
+
+  @override
+  State<_JobCard> createState() => _JobCardState();
+}
+
+class _JobCardState extends State<_JobCard> with SingleTickerProviderStateMixin {
+  late AnimationController _scaleCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _scaleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scaleCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SurfaceCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            width: 44, height: 44,
-            decoration: BoxDecoration(color: AppColors.surfaceElevated, borderRadius: AppRadii.borderMd),
-            child: const Icon(Iconsax.building, size: 20, color: AppColors.textSecondary),
+    final titles = _JobCard._titles;
+    final companies = _JobCard._companies;
+    final types = _JobCard._types;
+    final salary = _JobCard._salary;
+    final locations = _JobCard._locations;
+    final index = widget.index;
+
+    return GestureDetector(
+      onTapDown: (_) => _scaleCtrl.forward(),
+      onTapUp: (_) => _scaleCtrl.reverse(),
+      onTapCancel: () => _scaleCtrl.reverse(),
+      onTap: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Job: ${titles[index]} at ${companies[index]}'),
+            backgroundColor: AppColors.success,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_titles[index], style: AppTypography.labelLarge),
-                const SizedBox(height: 2),
-                Text(_companies[index], style: AppTypography.caption),
-              ],
-            ),
+        );
+      },
+      child: ScaleTransition(
+        scale: Tween(begin: 1.0, end: 0.96).animate(
+          CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeOut),
+        ),
+        child: SurfaceCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Header ──────────────────────────────────────
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4A00E0), Color(0xFF0081CF)],
+                      ),
+                      borderRadius: AppRadii.borderMd,
+                    ),
+                    child: const Icon(Iconsax.briefcase, size: 22, color: Colors.white),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          titles[index],
+                          style: AppTypography.labelMedium.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          companies[index],
+                          style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentMuted,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Hiring',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // ── Details ─────────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: _DetailItem(
+                      icon: Iconsax.briefcase,
+                      label: types[index],
+                    ),
+                  ),
+                  Expanded(
+                    child: _DetailItem(
+                      icon: Iconsax.location,
+                      label: locations[index],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // ── Salary ──────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.successMuted,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.success.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Iconsax.dollar_circle, size: 14, color: AppColors.success),
+                    const SizedBox(width: 6),
+                    Text(
+                      salary[index],
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.success,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ── Apply button ────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                height: 32,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: AppGradients.primary,
+                    borderRadius: AppRadii.borderMd,
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Applied for ${titles[index]}!'),
+                            backgroundColor: AppColors.success,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      borderRadius: AppRadii.borderMd,
+                      child: Center(
+                        child: Text(
+                          'Apply Now',
+                          style: AppTypography.labelSmall.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const Icon(Iconsax.arrow_right_3, size: 16, color: AppColors.textTertiary),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _DetailItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _DetailItem({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: AppColors.textSecondary),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            label,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textSecondary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 }

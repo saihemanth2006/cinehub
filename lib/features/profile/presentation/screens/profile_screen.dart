@@ -7,6 +7,7 @@ import '../../../../core/router/routes.dart';
 import '../../../../shared/widgets/media/cached_avatar.dart';
 import '../../../../shared/widgets/chips/chips.dart';
 import '../../../../shared/widgets/buttons/buttons.dart';
+import '../../../../shared/widgets/dialogs/collaborate_dialog.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});

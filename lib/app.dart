@@ -1,41 +1,32 @@
-import 'package:flutter/material.dart';
 import 'package:device_preview/device_preview.dart';
-import 'core/theme/theme.dart';
-import 'core/router/app_router.dart';
+import 'package:flutter/material.dart';
+import 'screens/main_screen.dart';
+import 'screens/auth/login_screen.dart';
+import 'screens/auth/signup_screen.dart';
 
-/// CineHub MaterialApp with GoRouter, dark cinematic theme,
-/// and DevicePreview integration for development.
-///
-/// Android-only app — no platform checks needed.
 class CineHubApp extends StatelessWidget {
-  final Locale? locale;
-
-  const CineHubApp({super.key, this.locale});
+  const CineHubApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'CineHub',
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: buildCineHubTheme(),
-      darkTheme: buildCineHubTheme(),
-      themeMode: ThemeMode.dark,
-      routerConfig: appRouter,
-      // DevicePreview integration
-      locale: locale,
-      builder: (context, child) {
-        // Chain DevicePreview builder with MediaQuery text scale clamping
-        // to prevent extreme font sizes on accessibility-heavy devices
-        final wrappedChild = DevicePreview.appBuilder(context, child);
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.linear(
-              MediaQuery.textScalerOf(context).scale(1.0).clamp(0.8, 1.4),
-            ),
-          ),
-          child: wrappedChild,
-        );
-      },
+      useInheritedMediaQuery: true,
+      locale: DevicePreview.locale(context),
+      builder: DevicePreview.appBuilder,
+      theme: ThemeData(brightness: Brightness.dark, fontFamily: 'Poppins'),
+      home: Builder(
+        builder: (context) => LoginScreen(
+          onLoggedIn: () {
+            Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
+          },
+          onSignUpRequested: () {
+            Navigator.of(context).push(MaterialPageRoute(builder: (_) => SignupScreen(onSignedUp: (ctx) {
+                  Navigator.of(ctx).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
+                })));
+          },
+        ),
+      ),
     );
   }
 }

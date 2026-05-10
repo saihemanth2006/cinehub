@@ -75,10 +75,14 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  # To add assets to your application, add an assets section, like this:
   assets:
     - assets/images/
     - assets/icons/
     - assets/animations/
+    - assets/kalki.jpg
+    - assets/salaar.jpg
+    - assets/darling.jpg
 
 # ─── Native Splash Screen ──────────────────────────────────────
 # Run: dart run flutter_native_splash:create

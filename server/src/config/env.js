@@ -45,26 +45,26 @@ const envSchema = Joi.object({
   RATE_LIMIT_MAX_REQUESTS: Joi.number().default(100),
 
   // ── AI ────────────────────────────────────
-  OPENAI_API_KEY: Joi.string().optional(),
+  OPENAI_API_KEY: Joi.string().allow('').default(''),
   OPENAI_MODEL: Joi.string().default('gpt-4-turbo'),
   OPENAI_MAX_TOKENS: Joi.number().default(4096),
-  GEMINI_API_KEY: Joi.string().optional(),
+  GEMINI_API_KEY: Joi.string().allow('').default(''),
   GEMINI_MODEL: Joi.string().default('gemini-1.5-pro'),
-  AI_DEFAULT_PROVIDER: Joi.string().valid('openai', 'gemini').default('openai'),
+  AI_DEFAULT_PROVIDER: Joi.string().valid('openai', 'gemini').default('gemini'),
 
   // ── AWS / Storage ─────────────────────────
-  AWS_ACCESS_KEY_ID: Joi.string().optional(),
-  AWS_SECRET_ACCESS_KEY: Joi.string().optional(),
+  AWS_ACCESS_KEY_ID: Joi.string().allow('').default(''),
+  AWS_SECRET_ACCESS_KEY: Joi.string().allow('').default(''),
   AWS_REGION: Joi.string().default('us-east-1'),
   AWS_S3_BUCKET: Joi.string().default('cinehub-media'),
   STORAGE_PROVIDER: Joi.string().valid('local', 's3').default('local'),
 
   // ── Email ─────────────────────────────────
-  SMTP_HOST: Joi.string().optional(),
+  SMTP_HOST: Joi.string().allow('').default(''),
   SMTP_PORT: Joi.number().default(587),
   SMTP_SECURE: Joi.boolean().default(false),
-  SMTP_USER: Joi.string().optional(),
-  SMTP_PASS: Joi.string().optional(),
+  SMTP_USER: Joi.string().allow('').default(''),
+  SMTP_PASS: Joi.string().allow('').default(''),
   EMAIL_FROM: Joi.string().default('CineHub <noreply@cinehub.ai>'),
 
   // ── Logging ───────────────────────────────

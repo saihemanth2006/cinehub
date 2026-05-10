@@ -8,6 +8,7 @@ library;
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cinehub/core/network/api_client.dart';
+import 'package:cinehub/core/di/providers.dart';
 import '../data/models/ai_request_model.dart';
 import '../data/models/ai_response_model.dart';
 
@@ -15,7 +16,7 @@ import '../data/models/ai_response_model.dart';
 class AIService {
   final Dio _dio;
 
-  AIService({Dio? dio}) : _dio = dio ?? getIt<Dio>();
+  AIService(Dio dio) : _dio = dio;
 
   /// Execute unified AI generation request
   /// 
@@ -152,11 +153,11 @@ class AITask {
 
 /// Singleton AI Service provider
 final aiServiceProvider = Provider<AIService>((ref) {
-  return AIService();
+  return AIService(ref.watch(apiClientProvider).dio);
 });
 
-/// Provider for getting AI capabilities
-final aiCapabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+/// Provider for getting AI capabilities (legacy — prefer aiCapabilitiesProvider from ai_providers.dart)
+final aiLegacyCapabilitiesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final service = ref.watch(aiServiceProvider);
   return service.getCapabilities();
 });

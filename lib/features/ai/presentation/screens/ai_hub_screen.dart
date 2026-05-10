@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,18 +8,18 @@ import '../../../../core/theme/theme.dart';
 import '../../../../core/router/routes.dart';
 import '../../../../shared/widgets/cards/cards.dart';
 import '../../../../shared/widgets/ai/ai_widgets.dart';
+import '../providers/ai_providers.dart';
+import '../../data/datasources/ai_generate_service.dart';
 
-class AIHubScreen extends StatefulWidget {
+class AIHubScreen extends ConsumerStatefulWidget {
   const AIHubScreen({super.key});
 
   @override
-  State<AIHubScreen> createState() => _AIHubScreenState();
+  ConsumerState<AIHubScreen> createState() => _AIHubScreenState();
 }
 
-class _AIHubScreenState extends State<AIHubScreen> {
+class _AIHubScreenState extends ConsumerState<AIHubScreen> {
   final _promptCtrl = TextEditingController();
-  bool _isGenerating = false;
-  String? _generatedContent;
 
   @override
   void dispose() {
@@ -25,33 +27,36 @@ class _AIHubScreenState extends State<AIHubScreen> {
     super.dispose();
   }
 
-  void _mockGenerate() {
-    if (_promptCtrl.text.trim().isEmpty) return;
-    setState(() {
-      _isGenerating = true;
-      _generatedContent = null;
-    });
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        setState(() {
-          _isGenerating = false;
-          _generatedContent =
-              'INT. ABANDONED WAREHOUSE - NIGHT\n\n'
-              'Rain hammers against broken windows. A single overhead lamp '
-              'swings, casting shifting shadows across concrete pillars.\n\n'
-              'DETECTIVE ARIA COLE (40s, weathered, sharp eyes) steps through '
-              'the doorway, service weapon drawn. Her breath fogs in the cold.\n\n'
-              'ARIA\n(whispering into earpiece)\n'
-              'I\'m inside. No visual on the suspect.\n\n'
-              'She sweeps the beam of her flashlight across the space. '
-              'Something CLANKS in the darkness ahead...';
-        });
-      }
-    });
+  Future<void> _generate() async {
+    final prompt = _promptCtrl.text.trim();
+    if (prompt.isEmpty) return;
+
+    await ref.read(aiGenerationProvider.notifier).generate(
+      module: AiModules.scriptDevelopment,
+      task: AiModules.generateScreenplay,
+      input: prompt,
+    );
+
+    final state = ref.read(aiGenerationProvider);
+    if (state.hasError && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(state.error ?? 'Generation failed.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final aiState = ref.watch(aiGenerationProvider);
+    final isGenerating = aiState.isLoading;
+    final result = aiState.response;
+    final generatedContent = result?.getValue<String>('content') ??
+        result?.getValue<String>('screenplay') ??
+        result?.data.values.whereType<String>().firstOrNull;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: CustomScrollView(
@@ -99,8 +104,8 @@ class _AIHubScreenState extends State<AIHubScreen> {
                   AIPromptInput(
                     controller: _promptCtrl,
                     hint: 'A noir detective thriller set in 2050...',
-                    onSend: _mockGenerate,
-                    isLoading: _isGenerating,
+                    onSend: _generate,
+                    isLoading: isGenerating,
                   ),
                 ],
               ).animate().fadeIn(duration: 400.ms),
@@ -108,7 +113,7 @@ class _AIHubScreenState extends State<AIHubScreen> {
           ),
 
           // ── Generation progress ─────────────────────────────
-          if (_isGenerating)
+          if (isGenerating)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -127,16 +132,15 @@ class _AIHubScreenState extends State<AIHubScreen> {
             ),
 
           // ── AI response ─────────────────────────────────────
-          if (_generatedContent != null)
+          if (generatedContent != null && !isGenerating)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                 child: AIResponseCard(
                   title: 'Generated Script',
-                  content: _generatedContent!,
-                  onCopy: () {},
-                  onSave: () {},
-                  onRegenerate: _mockGenerate,
+                  content: generatedContent,
+                  onCopy: () => Clipboard.setData(ClipboardData(text: generatedContent)),
+                  onRegenerate: _generate,
                 ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.02),
               ),
             ),

@@ -80,9 +80,6 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/animations/
-    - assets/kalki.jpg
-    - assets/salaar.jpg
-    - assets/darling.jpg
 
 # ─── Native Splash Screen ──────────────────────────────────────
 # Run: dart run flutter_native_splash:create

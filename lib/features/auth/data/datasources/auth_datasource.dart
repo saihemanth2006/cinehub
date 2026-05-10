@@ -11,7 +11,7 @@ import '../models/auth_models.dart';
 /// Extends [BaseApiService] to inherit error mapping and typed HTTP methods.
 /// Every method returns `Either<Failure, T>` for exhaustive error handling.
 class AuthDataSource extends BaseApiService {
-  AuthDataSource(ApiClient client) : super(client);
+  AuthDataSource(super.client);
 
   /// Register a new user account.
   Future<Either<Failure, AuthResult>> register(RegisterRequest request) {

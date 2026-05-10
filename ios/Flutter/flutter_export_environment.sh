@@ -1,7 +1,12 @@
 #!/bin/sh
 # This is a generated file; do not edit or check into version control.
+<<<<<<< HEAD
 export "FLUTTER_ROOT=Z:\developer\flutter"
 export "FLUTTER_APPLICATION_PATH=G:\github\cinehub"
+=======
+export "FLUTTER_ROOT=C:\src\flutter_windows_3.29.2-stable\flutter"
+export "FLUTTER_APPLICATION_PATH=C:\Users\DURGA NANDA KISHORE\Downloads\cinehub"
+>>>>>>> c8e610d8ff59d003fcc4b4d082206d9d67edd23a
 export "COCOAPODS_PARALLEL_CODE_SIGN=true"
 export "FLUTTER_TARGET=lib\main.dart"
 export "FLUTTER_BUILD_DIR=build"

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'dart:math';
 import 'dart:async';
 import '../../models/models.dart';
+import '../../services/auth_service.dart';
 
 // ─────────────────────────────────────────────────────────────
 //  DESIGN TOKENS
@@ -35,6 +36,8 @@ class _Featured {
 
 class _Post {
   final String name, handle, ago, body;
+  final String? id;
+  final String? authorId;
   final String? imageLabel;
   final Color avatarColor;
   final bool verified, filmmaker;
@@ -59,6 +62,8 @@ class _Post {
     required this.comments,
     required this.shares,
     required this.views,
+    this.id,
+    this.authorId,
     this.liked = false,
     this.bookmarked = false,
     this.following = false,
@@ -107,6 +112,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final _scrollCtrl = ScrollController();
   late List<_Post> _posts;
   bool _loadingMore = false;
+  int _feedPage = 1;
+  bool _hasMoreFeed = true;
 
   // Animations
   late AnimationController _shimmer, _pulse;
@@ -134,7 +141,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _pulse = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1800))
       ..repeat(reverse: true);
-    _posts = _buildPosts();
+    _posts = [];
+    _fetchFeedInitial();
     _scrollCtrl.addListener(_onScroll);
     _startAutoScroll();
   }
@@ -168,20 +176,86 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _loadMore() async {
+    if (!_hasMoreFeed) return;
     setState(() => _loadingMore = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (mounted) {
-      setState(() {
-        _posts.addAll(_buildPosts(seed: _posts.length));
-        _loadingMore = false;
-      });
-    }
+    _feedPage += 1;
+    final newPosts = await _fetchFeed(page: _feedPage);
+    if (!mounted) return;
+    setState(() {
+      _posts.addAll(newPosts);
+      _loadingMore = false;
+      if (newPosts.isEmpty) _hasMoreFeed = false;
+    });
   }
 
   Future<void> _onRefresh() async {
     HapticFeedback.mediumImpact();
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted) setState(() => _posts = _buildPosts());
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+    _feedPage = 1;
+    _hasMoreFeed = true;
+    final fresh = await _fetchFeed(page: 1);
+    if (!mounted) return;
+    setState(() => _posts = fresh);
+  }
+
+  Future<void> _fetchFeedInitial() async {
+    final list = await _fetchFeed(page: 1);
+    if (!mounted) return;
+    setState(() {
+      _posts = list;
+      _feedPage = 1;
+      _hasMoreFeed = list.length >= 20;
+    });
+  }
+
+  Future<List<_Post>> _fetchFeed({int page = 1, int limit = 20}) async {
+    try {
+      final svc = AuthService();
+      final raw = await svc.fetchFeed(page: page, limit: limit);
+      final meId = svc.user != null ? svc.user!['_id']?.toString() : null;
+      final mapped = <_Post>[];
+      for (final p in raw) {
+        final author = p['author'] is Map ? Map<String, dynamic>.from(p['author']) : <String, dynamic>{};
+        final authorId = author['_id']?.toString();
+        if (meId != null && authorId == meId) continue; // skip current user's posts
+        final name = author['fullName'] ?? author['name'] ?? 'Unknown';
+        final username = author['username'] ?? (authorId != null ? authorId.substring(0, 6) : 'user');
+        final content = p['content'] ?? '';
+        final media = p['media'];
+        String? imageLabel;
+        if (media is List && media.isNotEmpty) {
+          final first = media.first;
+          if (first is String && first.isNotEmpty) imageLabel = first;
+        }
+        final likes = (p['likesCount'] ?? p['likes'] ?? 0) as int;
+        final comments = (p['commentsCount'] ?? 0) as int;
+        final genre = p['genre'] as String?;
+        final liked = (p['liked'] ?? false) as bool;
+        final following = (author['isFollowed'] ?? false) as bool;
+        mapped.add(_Post(
+          name: name,
+          handle: '@' + username,
+          ago: 'just now',
+          body: content,
+          imageLabel: imageLabel,
+          avatarColor: const Color(0xFF7C3AED),
+          verified: false,
+          filmmaker: false,
+          genre: genre,
+          tags: const [],
+          likes: likes,
+          comments: comments,
+          shares: 0,
+          views: 0,
+          id: p['_id']?.toString(),
+          authorId: authorId,
+        )..liked = liked..following = following);
+      }
+      return mapped;
+    } catch (_) {
+      return [];
+    }
   }
 
   List<_Post> _buildPosts({int seed = 0}) {
@@ -268,7 +342,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     ];
     return List.generate(data.length, (i) {
       final d = data[(i + seed ~/ data.length) % data.length];
-      return _Post(
+        return _Post(
         name: d.name,
         handle: d.handle,
         ago: '${rng.nextInt(22) + 1}h',
@@ -283,6 +357,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         comments: rng.nextInt(980) + 40,
         shares: rng.nextInt(490) + 20,
         views: d.views + rng.nextInt(5000),
+          id: null,
+          authorId: null,
       );
     });
   }
@@ -368,21 +444,48 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                   key: ValueKey('post_$i'),
                                   post: p,
                                   index: i,
-                                  onLike: () => setState(() {
-                                    p.liked = !p.liked;
-                                    p.likes += p.liked ? 1 : -1;
+                                  onLike: () async {
+                                    // optimistic UI update
+                                    setState(() {
+                                      p.liked = !p.liked;
+                                      p.likes += p.liked ? 1 : -1;
+                                    });
                                     HapticFeedback.lightImpact();
-                                  }),
+                                    // attempt backend call; if fails, revert
+                                    try {
+                                                              if (p.id == null) return;
+                                                              final auth = AuthService();
+                                                              final success = p.liked
+                                                                  ? await auth.likePost(p.id!)
+                                                                  : await auth.unlikePost(p.id!);
+                                      if (!success && mounted) {
+                                        setState(() {
+                                          p.liked = !p.liked;
+                                          p.likes += p.liked ? 1 : -1;
+                                        });
+                                      }
+                                    } catch (_) {}
+                                  },
                                   onBookmark: () {
-                                    setState(
-                                        () => p.bookmarked = !p.bookmarked);
+                                    setState(() => p.bookmarked = !p.bookmarked);
                                     HapticFeedback.selectionClick();
                                   },
-                                  onFollow: () => setState(
-                                      () => p.following = !p.following),
+                                  onFollow: () async {
+                                    setState(() => p.following = !p.following);
+                                    try {
+                                      if (p.authorId == null) return;
+                                      final auth = AuthService();
+                                      final success = p.following
+                                          ? await auth.follow(p.authorId!)
+                                          : await auth.unfollow(p.authorId!);
+                                      if (!success && mounted) {
+                                        setState(() => p.following = !p.following);
+                                      }
+                                    } catch (_) {}
+                                  },
                                 );
                               },
-                              childCount: _posts.length + 1,
+                              childCount: _posts.length + (_hasMoreFeed ? 1 : 0),
                             ),
                           ),
                       ],
@@ -639,12 +742,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // ── Create Post bottom sheet ────────────────────────────────
   //  Replace this with a full-screen PostPage push if you prefer.
   void _showCreatePostSheet(BuildContext context) {
-    showModalBottomSheet(
+    // await result from sheet; newly created post will be returned and inserted into feed
+    showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _CreatePostSheet(),
-    );
+    ).then((created) {
+      if (created != null && mounted) {
+        // Map created post (backend shape) into local _Post model where possible
+        setState(() {
+          _posts.insert(0, _Post(
+            name: created['author']?['fullName'] ?? 'You',
+            handle: '@' + (created['author']?['username'] ?? 'me'),
+            ago: 'just now',
+            body: created['content'] ?? '',
+            imageLabel: null,
+            avatarColor: const Color(0xFF7C3AED),
+            verified: false,
+            filmmaker: false,
+            genre: created['genre'],
+            tags: const [],
+            likes: created['likesCount'] ?? 0,
+            comments: created['commentsCount'] ?? 0,
+            shares: 0,
+            views: 0,
+            id: created['_id']?.toString(),
+            authorId: created['author']?['_id']?.toString(),
+          ));
+        });
+      }
+    });
   }
 
   // ── Category chips ───────────────────────────────────────────
@@ -1067,10 +1195,35 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
 
                   // Post button
                   GestureDetector(
-                    onTap: () {
+                    onTap: () async {
                       HapticFeedback.mediumImpact();
-                      Navigator.pop(context);
-                      // TODO: dispatch post creation logic here
+                      setState(() {});
+                      final content = _ctrl.text.trim();
+                      if (content.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Write something to post')));
+                        return;
+                      }
+                      // show a small loading indicator
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (_) => const Center(child: CircularProgressIndicator()),
+                      );
+                      final auth = AuthService();
+                      try {
+                        final created = await auth.createPost(content, media: _addMedia ? [''] : null);
+                        Navigator.pop(context); // close loading
+                        if (created != null) {
+                          Navigator.pop(context, created);
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Posted')));
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to post')));
+                        }
+                      } catch (e) {
+                        Navigator.pop(context); // close loading
+                        final msg = e is Exception ? e.toString().replaceFirst('Exception: ', '') : 'Failed to post';
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to post: $msg')));
+                      }
                     },
                     child: Container(
                       height: 52,

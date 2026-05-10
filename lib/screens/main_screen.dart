@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import '../data/profiles_data.dart';
 import '../models/models.dart';
-import '../services/auth_service.dart';
 import 'home/home_page.dart';
 import 'messages/messages_page.dart';
-import 'notifications/notifications_page.dart';
 import 'AI/ai.dart';
 import 'projects/projects_page.dart';
 import 'profile/profile_page.dart';
-import 'jobs/jobs_page.dart'; // ← add this import (create the file if needed)
+import 'jobs/jobs_page.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -20,176 +19,53 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  // ── Shared state ─────────────────────────────────────────────────────
   final Set<int> _bookmarked = {};
-  final Set<int> _collaborated = {0, 2}; // seeded for demo
+  final Set<int> _collaborated = {0, 2};
   final Map<String, List<ChatMessage>> _conversations = {};
-  List<ProfileData> _profiles = kAllProfiles;
 
   @override
   void initState() {
     super.initState();
-    seedConversation(kAllProfiles[0], [
-      ChatMessage(
-          id: '1',
-          text: 'Hey! Thanks for the collaboration request 🎬',
-          isSent: false,
-          time: ago(120),
-          isRead: true),
-      ChatMessage(
-          id: '2',
-          text: 'Would love to work on your next project!',
-          isSent: false,
-          time: ago(118),
-          isRead: true),
-      ChatMessage(
-          id: '3',
-          text: 'Absolutely! I was thinking a short documentary.',
-          isSent: true,
-          time: ago(115),
-          isRead: true),
-      ChatMessage(
-          id: '4',
-          text: 'That sounds amazing. When are you thinking?',
-          isSent: false,
-          time: ago(100),
-          isRead: true),
-      ChatMessage(
-          id: '5',
-          text: 'Maybe late July? We can plan a recce first.',
-          isSent: true,
-          time: ago(90),
-          isRead: true),
-      ChatMessage(
-          id: '6',
-          text: 'Great — let\'s sync dates soon.',
-          isSent: true,
-          time: ago(10),
-          isRead: false),
+    _seedConversation(kAllProfiles[0], [
+      ChatMessage(id: '1', text: 'Hey! Thanks for the collaboration request 🎬', isSent: false, time: _ago(120), isRead: true),
+      ChatMessage(id: '2', text: 'Would love to work on your next project!', isSent: false, time: _ago(118), isRead: true),
+      ChatMessage(id: '3', text: 'Absolutely! I was thinking a short documentary.', isSent: true, time: _ago(115), isRead: true),
+      ChatMessage(id: '4', text: 'That sounds amazing. When are you thinking?', isSent: false, time: _ago(100), isRead: true),
+      ChatMessage(id: '5', text: 'Maybe late July? We can plan a recce first.', isSent: true, time: _ago(90), isRead: true),
+      ChatMessage(id: '6', text: 'Perfect. I\'ll keep those dates free 👍', isSent: false, time: _ago(10), isRead: false),
     ]);
-
-    seedConversation(kAllProfiles[2], [
-      ChatMessage(
-          id: '1',
-          text: 'Hi! Saw your collaboration request. Interested!',
-          isSent: false,
-          time: ago(300),
-          isRead: true),
-      ChatMessage(
-          id: '2',
-          text: 'Great to hear. I need a lead for a thriller.',
-          isSent: true,
-          time: ago(290),
-          isRead: true),
-      ChatMessage(
-          id: '3',
-          text: 'Thriller is my favourite genre 😄',
-          isSent: false,
-          time: ago(285),
-          isRead: true),
-      ChatMessage(
-          id: '4',
-          text: 'Script will be ready by end of month.',
-          isSent: true,
-          time: ago(280),
-          isRead: true),
-      ChatMessage(
-          id: '5',
-          text: 'Excited to read it! 🎭',
-          isSent: false,
-          time: ago(60),
-          isRead: false),
+    _seedConversation(kAllProfiles[2], [
+      ChatMessage(id: '1', text: 'Hi! Saw your collaboration request. Interested!', isSent: false, time: _ago(300), isRead: true),
+      ChatMessage(id: '2', text: 'Great to hear. I need a lead for a thriller.', isSent: true, time: _ago(290), isRead: true),
+      ChatMessage(id: '3', text: 'Thriller is my favourite genre 😄', isSent: false, time: _ago(285), isRead: true),
+      ChatMessage(id: '4', text: 'Script will be ready by end of month.', isSent: true, time: _ago(280), isRead: true),
+      ChatMessage(id: '5', text: 'Excited to read it! 🎭', isSent: false, time: _ago(60), isRead: false),
     ]);
-            }
+  }
 
-  DateTime ago(int minutes) =>
-      DateTime.now().subtract(Duration(minutes: minutes));
+  DateTime _ago(int minutes) => DateTime.now().subtract(Duration(minutes: minutes));
 
-  void seedConversation(ProfileData p, List<ChatMessage> msgs) {
+  void _seedConversation(ProfileData p, List<ChatMessage> msgs) {
     _conversations[p.name] = msgs;
   }
 
-  void toggleBookmark(int index) {
+  void _toggleBookmark(int index) {
     setState(() {
-      _bookmarked.contains(index)
-          ? _bookmarked.remove(index)
-          : _bookmarked.add(index);
+      _bookmarked.contains(index) ? _bookmarked.remove(index) : _bookmarked.add(index);
     });
   }
 
-  Future<void> addCollaboration(int index) async {
-    final profile = (index >= 0 && index < _profiles.length) ? _profiles[index] : null;
-    if (profile == null) return;
-
+  void _addCollaboration(int index) {
+    setState(() => _collaborated.add(index));
+    final profile = kAllProfiles[index];
     if (!_conversations.containsKey(profile.name)) {
       _conversations[profile.name] = [
-        ChatMessage(
-          id: '1',
-          text: 'Hi! I received your collaboration request 🙌',
-          isSent: false,
-          time: DateTime.now(),
-          isRead: false,
-        ),
+        ChatMessage(id: '1', text: 'Hi! I received your collaboration request 🙌', isSent: false, time: DateTime.now(), isRead: false),
       ];
     }
-
-    // attempt follow on backend if possible
-    if (profile.id.isNotEmpty) {
-      try {
-        final auth = AuthService();
-        await auth.follow(profile.id);
-      } catch (_) {}
-    }
-
-    setState(() => _collaborated.add(index));
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    loadRemoteProfiles();
-  }
-
-  Future<void> loadRemoteProfiles() async {
-    try {
-      final auth = AuthService();
-      final users = await auth.fetchAllUsers();
-      if (users.isEmpty) return;
-      final colors = [
-        const Color(0xffFF512F),
-        const Color(0xff396afc),
-        const Color(0xff11998e),
-        const Color(0xff8E2DE2),
-        const Color(0xfff953c6),
-      ];
-      final icons = [
-        Icons.videocam_rounded,
-        Icons.cut_rounded,
-        Icons.theater_comedy_rounded,
-        Icons.star_rounded,
-        Icons.graphic_eq_rounded,
-      ];
-      final mapped = users.map((u) {
-        final i = users.indexOf(u) % colors.length;
-        return ProfileData(
-          id: u['_id']?.toString() ?? '',
-          name: u['fullName'] ?? (u['username'] ?? 'User'),
-          role: u['role'] ?? '',
-          type: 'User',
-          location: '',
-          color1: colors[i],
-          color2: colors[(i + 1) % colors.length],
-          skills: const [],
-          icon: icons[i],
-          followers: 0,
-        );
-      }).toList();
-      if (!mounted) return;
-      setState(() => _profiles = mapped);
-    } catch (_) {}
-  }
-
-  void onSendMessage(String profileName, ChatMessage msg) {
+  void _onSendMessage(String profileName, ChatMessage msg) {
     setState(() {
       _conversations[profileName] ??= [];
       _conversations[profileName]!.add(msg);
@@ -204,180 +80,264 @@ class _MainScreenState extends State<MainScreen> {
     return count;
   }
 
+  static const _navItems = [
+    _NavItem(icon: Icons.home_rounded,            label: 'Home'),
+    _NavItem(icon: Icons.movie_creation_outlined, label: 'Projects'),
+    _NavItem(icon: Icons.auto_awesome_outlined,   label: 'AI'),
+    _NavItem(icon: Icons.work_outline_rounded,    label: 'Jobs'),
+    _NavItem(icon: Icons.person_outline_rounded,  label: 'Profile'),
+  ];
+
   @override
   Widget build(BuildContext context) {
-    // ─────────────────────────────────────────────────────────
-    //  PAGE INDEX MAP
-    //  0 → Home
-    //  1 → Projects
-    //  2 → AI
-    //  3 → Jobs        ← NEW (replaces Messages in bottom nav)
-    //  4 → Profile
-    //  5 → Messages    ← hidden from nav; opened via home header button
-    // ─────────────────────────────────────────────────────────
     final List<Widget> pages = [
-      // ── 0: Home ──────────────────────────────────────────────
       HomePage(
-        allProfiles: _profiles,
-        // Messages is now at index 5 in the stack
+        allProfiles: kAllProfiles,
         onNavigateToMessages: () => setState(() => _currentIndex = 5),
         unreadMessages: _unreadMessageCount,
       ),
-
-      // ── 1: Projects ──────────────────────────────────────────
       ProjectsPage(
-        allProfiles: _profiles,
+        allProfiles: kAllProfiles,
         bookmarked: _bookmarked,
         collaborated: _collaborated,
-        onBookmark: toggleBookmark,
-        onCollaborate: addCollaboration,
+        onBookmark: _toggleBookmark,
+        onCollaborate: _addCollaboration,
       ),
-
-      // ── 2: AI ────────────────────────────────────────────────
       const AIPage(),
-
-      // ── 3: Jobs (NEW) ────────────────────────────────────────
       const JobsPage(),
-
-      // ── 4: Profile ───────────────────────────────────────────
       ProfilePage(),
-
-      // ── 5: Messages (hidden from bottom nav) ─────────────────
       MessagesPage(
-        allProfiles: _profiles,
+        allProfiles: kAllProfiles,
         collaborated: _collaborated,
         conversations: _conversations,
-        onSendMessage: onSendMessage,
+        onSendMessage: _onSendMessage,
       ),
     ];
 
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: pages),
-      bottomNavigationBar: Container(
-        margin: const EdgeInsets.all(16),
-        height: 72,
-        decoration: BoxDecoration(
-          color: const Color(0xff111111),
-          borderRadius: BorderRadius.circular(28),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.5),
-              blurRadius: 24,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            // ── 0: Home ────────────────────────────────────────
-            navItem(
-              icon: Icons.home_rounded,
-              label: "Home",
-              index: 0,
-            ),
-
-            // ── 1: Projects ────────────────────────────────────
-            navItem(
-              icon: Icons.movie_creation_outlined,
-              label: "Projects",
-              index: 1,
-            ),
-
-            // ── 2: AI ──────────────────────────────────────────
-            navItem(
-              icon: Icons.auto_awesome_outlined,
-              label: "AI",
-              index: 2,
-            ),
-
-            // ── 3: Jobs (NEW) ──────────────────────────────────
-            navItem(
-              icon: Icons.work_outline_rounded,
-              label: "Jobs",
-              index: 3,
-            ),
-
-            // ── 4: Profile ─────────────────────────────────────
-            navItem(
-              icon: Icons.person_outline_rounded,
-              label: "Profile",
-              index: 4,
-            ),
-
-            // NOTE: Messages (index 5) is intentionally NOT listed
-            // here. It is accessed via the envelope icon in the
-            // Home screen header, which calls onNavigateToMessages
-            // → _currentIndex = 5.
-          ],
-        ),
+      bottomNavigationBar: _FloatingBubbleNavBar(
+        currentIndex: _currentIndex,
+        items: _navItems,
+        onTap: (i) => setState(() => _currentIndex = i),
       ),
     );
   }
+}
 
-  Widget navItem({
-    required IconData icon,
-    required String label,
-    required int index,
-    int badge = 0,
-  }) {
-    // Consider "selected" only for the 5 visible bottom-nav tabs (0–4).
-    // When Messages (index 5) is open, no bottom tab lights up — which
-    // is the correct behaviour since it has no bottom nav entry.
-    final bool sel = _currentIndex == index;
+// ── Data class ─────────────────────────────────────────────────────────────
+class _NavItem {
+  final IconData icon;
+  final String label;
+  const _NavItem({required this.icon, required this.label});
+}
 
-    return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
+// ── NavBar widget ──────────────────────────────────────────────────────────
+class _FloatingBubbleNavBar extends StatelessWidget {
+  final int currentIndex;
+  final List<_NavItem> items;
+  final ValueChanged<int> onTap;
+
+  const _FloatingBubbleNavBar({
+    required this.currentIndex,
+    required this.items,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 90,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: sel
-                  ? const LinearGradient(
-                      colors: [Color(0xffFF8C00), Color(0xffFF3D00)])
-                  : null,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: Colors.white),
-                if (sel) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 13),
+          // ── Dark bar ──────────────────────────────────────────
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: 70,
+              decoration: BoxDecoration(
+                color: const Color(0xff111111),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(28),
+                  topRight: Radius.circular(28),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.55),
+                    blurRadius: 20,
+                    offset: const Offset(0, -4),
                   ),
                 ],
-              ],
+              ),
             ),
           ),
-          if (badge > 0)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                width: 16,
-                height: 16,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xffFF3D00),
-                ),
+
+          // ── Tab icons ─────────────────────────────────────────
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: SizedBox(
+              height: 70,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: List.generate(items.length, (i) {
+                  return _BubbleTab(
+                    icon: items[i].icon,
+                    selected: currentIndex == i,
+                    onTap: () => onTap(i),
+                  );
+                }),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Single tab with floating bubble + idle float + purple dot ──────────────
+class _BubbleTab extends StatefulWidget {
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _BubbleTab({
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  State<_BubbleTab> createState() => _BubbleTabState();
+}
+
+class _BubbleTabState extends State<_BubbleTab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _floatController;
+
+  @override
+  void initState() {
+    super.initState();
+    _floatController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _floatController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 60,
+        height: 70,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+
+            // ── Floating bubble (selected) ──────────────────────
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 1000),
+              curve: Curves.easeOutBack,
+              top: widget.selected ? -22 : 12,
+              left: 0,
+              right: 0,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 500),
+                opacity: widget.selected ? 1.0 : 0.0,
                 child: Center(
-                  child: Text(
-                    '$badge',
-                    style: const TextStyle(
-                        fontSize: 9, fontWeight: FontWeight.w800),
+                  child: AnimatedBuilder(
+                    animation: _floatController,
+                    builder: (context, child) {
+                      final double floatOffset = widget.selected
+                          ? math.sin(_floatController.value * 2 * math.pi) * 4.0
+                          : 0.0;
+                      return Transform.translate(
+                        offset: Offset(0, floatOffset),
+                        child: child,
+                      );
+                    },
+                    child: Container(
+                      width: 54,
+                      height: 54,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [Color(0xffFF8C00), Color(0xffFF3D00)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color(0x88FF5500),
+                            blurRadius: 14,
+                            spreadRadius: 1,
+                            offset: Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        widget.icon,
+                        size: 26,
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-        ],
+
+            // ── Purple dot at bottom (selected indicator) ───────
+            Positioned(
+              bottom: 6,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                opacity: widget.selected ? 1.0 : 0.0,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: widget.selected ? 7 : 0,
+                  height: widget.selected ? 7 : 0,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xffA855F7), // purple-500
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xffA855F7).withOpacity(0.6),
+                        blurRadius: 6,
+                        spreadRadius: 12,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // ── Dimmed icon (not selected) ──────────────────────
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: widget.selected ? 0.0 : 1.0,
+              child: Icon(
+                widget.icon,
+                size: 24,
+                color: Colors.white38,
+              ),
+            ),
+
+          ],
+        ),
       ),
     );
   }

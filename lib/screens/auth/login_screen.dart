@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import '../../services/auth_service.dart';
+import 'package:provider/provider.dart';
+import '../../core/network/api_client.dart';
+import '../../core/network/api_exceptions.dart';
+import '../../features/auth/auth_provider.dart';
 
 import '../main_screen.dart';
 
@@ -18,7 +19,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _identifierCtl = TextEditingController();
   final TextEditingController _passwordCtl = TextEditingController();
-  bool _loading = false;
 
   Future<void> _tryLogin() async {
     final id = _identifierCtl.text.trim();
@@ -27,40 +27,19 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter identifier and password')));
       return;
     }
-    setState(() => _loading = true);
+
     try {
-      final uri = Uri.parse('http://localhost:4000/login');
-      final resp = await http.post(uri,
-          headers: {'Content-Type': 'application/json'}, body: jsonEncode({'identifier': id, 'password': pwd}));
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        if (body is Map && body['ok'] == true) {
-          // save token + user in AuthService
-          AuthService().setFromLogin(body);
-          // Call callback or navigate to main screen
-          if (!mounted) return;
-          if (widget.onLoggedIn != null) {
-            widget.onLoggedIn!.call();
-          } else {
-            Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
-          }
-          return;
-        }
-        String msg = 'Login failed';
-        if (body is Map && body['error'] != null) msg = body['error'].toString();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await context.read<AuthProvider>().login(id, pwd);
+      if (!mounted) return;
+      if (widget.onLoggedIn != null) {
+        widget.onLoggedIn!.call();
       } else {
-        String msg = 'Login failed: ${resp.statusCode}';
-        try {
-          final body = jsonDecode(resp.body);
-          if (body is Map && body['error'] != null) msg = body['error'].toString();
-        } catch (_) {}
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
@@ -74,6 +53,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isLoading = context.watch<AuthProvider>().isLoading;
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -94,7 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 12),
               Row(children: [Checkbox(value: false, onChanged: (_) {}), const Text('Remember me')]),
               const SizedBox(height: 12),
-              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _loading ? null : _tryLogin, child: _loading ? const CircularProgressIndicator() : const Text('Log In'))),
+              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: isLoading ? null : _tryLogin, child: isLoading ? const CircularProgressIndicator() : const Text('Log In'))),
               const SizedBox(height: 16),
               Center(child: TextButton(onPressed: _openSignup, child: const Text("Don't have an account? Sign Up"))),
             ],
@@ -122,6 +103,8 @@ class _SignupScreenState extends State<SignupScreen> {
   final _password = TextEditingController();
   final _otp = TextEditingController();
 
+  final ApiClient _apiClient = ApiClient();
+
   bool _sending = false;
   bool _verifying = false;
   bool _verified = false;
@@ -131,12 +114,11 @@ class _SignupScreenState extends State<SignupScreen> {
     if (phone.isEmpty) return;
     setState(() => _sending = true);
     try {
-      final uri = Uri.parse('http://localhost:4000/send-otp');
-      final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({'phone': phone}));
+      final resp = await _apiClient.post('/send-otp', data: {'phone': phone});
       if (resp.statusCode == 200) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('OTP sent')));
       else ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to send OTP')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -148,19 +130,15 @@ class _SignupScreenState extends State<SignupScreen> {
     if (phone.isEmpty || code.isEmpty) return;
     setState(() => _verifying = true);
     try {
-      final uri = Uri.parse('http://localhost:4000/verify-otp');
-      final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({'phone': phone, 'otp': code}));
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        if (body is Map && body['ok'] == true) {
-          setState(() => _verified = true);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone verified')));
-          return;
-        }
+      final resp = await _apiClient.post('/verify-otp', data: {'phone': phone, 'otp': code});
+      if (resp.statusCode == 200 && resp.data['ok'] == true) {
+        setState(() => _verified = true);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone verified')));
+        return;
       }
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Verification failed')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _verifying = false);
     }
@@ -171,45 +149,35 @@ class _SignupScreenState extends State<SignupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please verify phone first')));
       return;
     }
-    final uri = Uri.parse('http://localhost:4000/register');
-    final body = jsonEncode({
-      'fullName': _fullName.text.trim(),
-      'email': _email.text.trim(),
-      'phone': _phone.text.trim(),
-      'password': _password.text,
-      'otp': _otp.text.trim(),
-    });
+    
     try {
-      final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: body);
-      if (resp.statusCode == 200) {
-        final parsed = jsonDecode(resp.body);
-        if (parsed is Map && parsed['ok'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created')));
-          // try to auto-login so we get a token and user stored
-          try {
-            final lid = _phone.text.trim();
-            final lpwd = _password.text;
-            final luri = Uri.parse('http://localhost:4000/login');
-            final lresp = await http.post(luri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({'identifier': lid, 'password': lpwd}));
-            if (lresp.statusCode == 200) {
-              final lbody = jsonDecode(lresp.body);
-              if (lbody is Map && lbody['ok'] == true) {
-                AuthService().setFromLogin(lbody);
-              }
-            }
-          } catch (_) {}
-          if (!mounted) return;
-          if (widget.onSignedUp != null) {
-            widget.onSignedUp!(context);
-          } else {
-            Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
-          }
-          return;
+      final resp = await _apiClient.post('/register', data: {
+        'fullName': _fullName.text.trim(),
+        'email': _email.text.trim(),
+        'phone': _phone.text.trim(),
+        'password': _password.text,
+        'otp': _otp.text.trim(),
+      });
+      
+      if (resp.statusCode == 200 && resp.data['ok'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created')));
+        
+        // try to auto-login so we get a token and user stored
+        try {
+          await context.read<AuthProvider>().login(_phone.text.trim(), _password.text);
+        } catch (_) {}
+        
+        if (!mounted) return;
+        if (widget.onSignedUp != null) {
+          widget.onSignedUp!(context);
+        } else {
+          Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
         }
+        return;
       }
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Registration failed')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 

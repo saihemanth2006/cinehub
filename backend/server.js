@@ -2,6 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -28,6 +37,19 @@ if (accountSid && authToken) {
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure Multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage: storage });
 
 // --- MongoDB (Mongoose) setup ---
 let mongoose = null;
@@ -44,6 +66,7 @@ try {
     var Comment = require('./models/Comment');
     var Conversation = require('./models/Conversation');
     var Message = require('./models/Message');
+    var Job = require('./models/Job');
   } catch (e) {
     // models may not be present yet
   }
@@ -283,6 +306,22 @@ app.post('/logout', authenticateToken, (req, res) => {
   }
 });
 
+// Upload endpoint
+app.post('/api/upload', authenticateToken, upload.single('media'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ ok: false, error: 'no_file_uploaded' });
+    }
+    // Return the relative or absolute URL
+    // In production, you'd use a full domain or S3 URL
+    const fileUrl = `/uploads/${req.file.filename}`;
+    return res.json({ ok: true, url: fileUrl });
+  } catch (e) {
+    console.error('Upload error:', e);
+    return res.status(500).json({ ok: false, error: 'upload_failed' });
+  }
+});
+
 // Protected route to get current user info
 app.get('/me', authenticateToken, async (req, res) => {
   try {
@@ -435,11 +474,14 @@ function startServer() {
     console.warn('Socket.io not available; realtime chat disabled.');
   }
 
-    // mount social routes with io so they can emit realtime events
     try {
       const socialRouterFactory = require('./routes/social');
       const socialRouter = socialRouterFactory({ authenticateToken, models: { User, Follow, Post, Like, Comment, Conversation, Message }, io });
       app.use('/api', socialRouter);
+
+      const jobsRouterFactory = require('./routes/jobs');
+      const jobsRouter = jobsRouterFactory({ authenticateToken, models: { Job } });
+      app.use('/api', jobsRouter);
     } catch (e) {
       console.warn('Social routes not loaded at server start:', e && e.message ? e.message : e);
     }

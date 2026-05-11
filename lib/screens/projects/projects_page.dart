@@ -1,3 +1,4 @@
+import '../../widgets/animated_gradient_border.dart';
 import 'package:flutter/material.dart';
 import '../../models/models.dart';
 import '../../widgets/collaborate_dialog.dart';
@@ -127,7 +128,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   const Expanded(
                     child: Center(
                       child: Text(
-                        "Projects",
+                        "Collaboration",
                         style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
                       ),
                     ),
@@ -222,33 +223,28 @@ class _ProjectsPageState extends State<ProjectsPage> {
                   Positioned(
   top: 8,
   right: 20,
-  child: AnimatedContainer(
-    duration: const Duration(milliseconds: 400),
-    curve: Curves.fastOutSlowIn,
-    width: _searchExpanded ? sw - 40 : 52,
-    height: 52,
-    decoration: BoxDecoration(
-      color: const Color(0xff151515),
-      borderRadius:
-          BorderRadius.circular(_searchExpanded ? 20 : 26),
-      border: Border.all(
-        color: Colors.white.withOpacity(0.06),
+  child: AnimatedGradientBorder(
+    isActive: _searchExpanded,
+    backgroundColor: const Color(0xff151515),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.4),
+        blurRadius: 20,
+        offset: const Offset(0, 8),
       ),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.4),
-          blurRadius: 20,
-          offset: const Offset(0, 8),
-        ),
-      ],
-    ),
-    clipBehavior: Clip.hardEdge,
+    ],
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.fastOutSlowIn,
+      width: _searchExpanded ? sw - 40 : 52,
+      height: 52,
     child: AnimatedSwitcher(
       duration: const Duration(milliseconds: 250),
       child: _searchExpanded
           ? _expandedSearch()
           : _collapsedSearch(),
     ),
+  ),
   ),
 ),
                 ],
@@ -343,6 +339,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
         MaterialPageRoute(
           builder: (_) => ProfileDetailsPage(
             profile: profile,
+            heroTag: 'profile_${profile.name}_$index',
             initialRequested: requested,
             onCollaborateRequested: () {
               if (!requested) widget.onCollaborate(index);
@@ -351,7 +348,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
         ),
       ),
       child: Hero(
-        tag: 'profile_${profile.name}',
+        tag: 'profile_${profile.name}_$index',
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),

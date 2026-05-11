@@ -6,12 +6,14 @@ import '../../services/auth_service.dart';
 
 class ProfileDetailsPage extends StatefulWidget {
   final ProfileData profile;
+  final String heroTag;
   final bool initialRequested;
   final VoidCallback? onCollaborateRequested;
 
   const ProfileDetailsPage({
     super.key,
     required this.profile,
+    required this.heroTag,
     this.initialRequested = false,
     this.onCollaborateRequested,
   });
@@ -156,7 +158,7 @@ class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
                       const EdgeInsets.only(top: 95, left: 24, right: 24),
                   child: Column(children: [
                     Hero(
-                      tag: 'profile_${p.name}',
+                      tag: widget.heroTag,
                       child: Container(
                         width: 105,
                         height: 105,

@@ -2,7 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math';
 import 'dart:async';
+import '../../widgets/animated_gradient_border.dart';
 import '../../models/models.dart';
+import '../../services/auth_service.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:video_player/video_player.dart';
+import 'package:dio/dio.dart' as dio;
+import 'dart:convert';
+import '../../core/config/api_config.dart';
+import '../../core/network/api_client.dart';
+import 'package:provider/provider.dart';
+import '../../features/auth/auth_provider.dart';
 
 // ─────────────────────────────────────────────────────────────
 //  DESIGN TOKENS
@@ -26,25 +36,18 @@ class _C {
 //  DATA MODELS
 // ─────────────────────────────────────────────────────────────
 class _Featured {
-  final String title, subtitle, genre, badge, cta, imageUrl;
+  final String title, subtitle, genre, badge, cta;
   final Color c1, c2;
   final IconData icon;
-  const _Featured(
-    this.title,
-    this.subtitle,
-    this.genre,
-    this.badge,
-    this.cta,
-    this.imageUrl,
-    this.c1,
-    this.c2,
-    this.icon,
-  );
+  const _Featured(this.title, this.subtitle, this.genre, this.badge, this.cta,
+      this.c1, this.c2, this.icon);
 }
 
 class _Post {
   final String name, handle, ago, body;
-  final String? imageLabel;
+  final String? id;
+  final String? authorId;
+  final List<String> media;
   final Color avatarColor;
   final bool verified, filmmaker;
   final String? genre;
@@ -58,7 +61,7 @@ class _Post {
     required this.handle,
     required this.ago,
     required this.body,
-    this.imageLabel,
+    this.media = const [],
     required this.avatarColor,
     this.verified = false,
     this.filmmaker = false,
@@ -68,6 +71,8 @@ class _Post {
     required this.comments,
     required this.shares,
     required this.views,
+    this.id,
+    this.authorId,
     this.liked = false,
     this.bookmarked = false,
     this.following = false,
@@ -103,15 +108,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // Category
   String _cat = 'All';
   static const _cats = [
-    'All',
-    'Trending',
-    'New Releases',
-    'Festivals',
-    'Drama',
-    'Thriller',
-    'Documentary',
-    'Sci-Fi',
-    'Indie',
+    'All', 'Trending', 'New Releases', 'Festivals',
+    'Drama', 'Thriller', 'Documentary', 'Sci-Fi', 'Indie'
   ];
 
   // Carousel
@@ -123,68 +121,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final _scrollCtrl = ScrollController();
   late List<_Post> _posts;
   bool _loadingMore = false;
+  int _feedPage = 1;
+  bool _hasMoreFeed = true;
 
   // Animations
   late AnimationController _shimmer, _pulse;
 
-  // ── Featured data with real Unsplash photos ────────────────
   static const _featured = [
-  _Featured(
-    'Kalki 2898-AD',                     // title
-    'Sci-Fi Epic · 3hr 1min',            // subtitle
-    'Sci-Fi',                             // genre
-    'TRENDING',                           // badge
-    'Watch Now',                          // cta
-    'assets/kalki.jpg', // imageUrl
-    Color(0xFF7B5CFF),                    // c1
-    Color(0xFF3A1FA0),                    // c2
-    Icons.movie_rounded,                  // icon
-  ),
-  _Featured(
-    'SALAAR',
-    'Action · All Time Favorite',
-    'Action',
-    'Violence',                                // ← was missing
-    'Watch Now',
-    'assets/salaar.jpg',
-    Color(0xFFFF3D6B),
-    Color(0xFF8B0024),
-    Icons.local_movies_rounded,
-  ),
-  _Featured(
-    'Darling',
-    'Feel Good Movie · Telugu',
-    'Romance',
-    'Love',
-    'Watch Now',
-    'assets/darling.jpg',
-    Color(0xFF00BFA5),
-    Color(0xFF004D40),
-    Icons.emoji_events_rounded,
-  ),
-  _Featured(
-    'SALAAR',                             // fixed: was missing badge + cta
-    'Action · Raw & Intense',
-    'Action',
-    'BLOCKBUSTER',                        // badge
-    'Watch Now',                          // cta
-    'assets/salaar.jpg',
-    Color(0xFFFFA726),
-    Color(0xFF6D3400),
-    Icons.video_library_rounded,
-  ),
-  _Featured(
-    'Darling',
-    'World Cinema · Drama',
-    'Drama',
-    'Love',
-    'Watch Now',
-    'assets/darling.jpg',
-    Color(0xFF00D4FF),
-    Color(0xFF003356),
-    Icons.public_rounded,
-  ),
-];
+    _Featured('Kalki 2898-AD', 'Sci-Fi Epic · 3hr 1min', 'Sci-Fi', 'TRENDING',
+        'Watch Now', Color(0xFF7B5CFF), Color(0xFF3A1FA0), Icons.movie_rounded),
+    _Featured('Stree 2', 'Horror Comedy · Hindi', 'Horror', 'HOT',
+        'Watch Now', Color(0xFFFF3D6B), Color(0xFF8B0024), Icons.local_movies_rounded),
+    _Featured('MAMI 2025', 'Film Festival · Mumbai', 'Festival', 'LIVE',
+        'Register', Color(0xFF00BFA5), Color(0xFF004D40), Icons.emoji_events_rounded),
+    _Featured('Indie Lens', 'Short Films · All Genres', 'Indie', 'NEW',
+        'Explore', Color(0xFFFFA726), Color(0xFF6D3400), Icons.video_library_rounded),
+    _Featured('Sundance 2025', 'World Cinema · Drama', 'Drama', 'FEATURED',
+        'Apply', Color(0xFF00D4FF), Color(0xFF003356), Icons.public_rounded),
+  ];
 
   @override
   void initState() {
@@ -196,7 +150,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _pulse = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1800))
       ..repeat(reverse: true);
-    _posts = _buildPosts();
+    _posts = [];
+    _fetchFeedInitial();
     _scrollCtrl.addListener(_onScroll);
     _startAutoScroll();
   }
@@ -206,15 +161,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         Timer.periodic(const Duration(seconds: 3, milliseconds: 500), (_) {
       if (!mounted || !_pageCtrl.hasClients) return;
       final next = (_page + 1) % _featured.length;
-      _pageCtrl.animateToPage(
-        next,
-        duration: const Duration(milliseconds: 650),
-        curve: Curves.easeInOutCubic,
-      );
+      _pageCtrl.animateToPage(next,
+          duration: const Duration(milliseconds: 650),
+          curve: Curves.easeInOutCubic);
     });
   }
 
   void _onScroll() {
+    // ── Collapse / expand search on scroll ──────────────────
     final scrolled = _scrollCtrl.offset > _scrollThreshold;
     if (scrolled && _searchExpanded) {
       setState(() => _searchExpanded = false);
@@ -222,6 +176,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       setState(() => _searchExpanded = true);
     }
 
+    // ── Infinite load ────────────────────────────────────────
     if (_scrollCtrl.position.pixels >=
             _scrollCtrl.position.maxScrollExtent - 300 &&
         !_loadingMore) {
@@ -230,20 +185,83 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _loadMore() async {
+    if (!_hasMoreFeed) return;
     setState(() => _loadingMore = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (mounted) {
-      setState(() {
-        _posts.addAll(_buildPosts(seed: _posts.length));
-        _loadingMore = false;
-      });
-    }
+    _feedPage += 1;
+    final newPosts = await _fetchFeed(page: _feedPage);
+    if (!mounted) return;
+    setState(() {
+      _posts.addAll(newPosts);
+      _loadingMore = false;
+      if (newPosts.isEmpty) _hasMoreFeed = false;
+    });
   }
 
   Future<void> _onRefresh() async {
     HapticFeedback.mediumImpact();
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted) setState(() => _posts = _buildPosts());
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+    _feedPage = 1;
+    _hasMoreFeed = true;
+    final fresh = await _fetchFeed(page: 1);
+    if (!mounted) return;
+    setState(() => _posts = fresh);
+  }
+
+  Future<void> _fetchFeedInitial() async {
+    final list = await _fetchFeed(page: 1);
+    if (!mounted) return;
+    setState(() {
+      _posts = list;
+      _feedPage = 1;
+      _hasMoreFeed = list.length >= 20;
+    });
+  }
+
+  Future<List<_Post>> _fetchFeed({int page = 1, int limit = 20}) async {
+    try {
+      final svc = AuthService();
+      final raw = await svc.fetchFeed(page: page, limit: limit);
+      final authProvider = context.read<AuthProvider>();
+      final meId = authProvider.user != null ? authProvider.user!['_id']?.toString() : null;
+      final mapped = <_Post>[];
+      for (final p in raw) {
+        final author = p['author'] is Map ? Map<String, dynamic>.from(p['author']) : <String, dynamic>{};
+        final authorId = author['_id']?.toString();
+        if (meId != null && authorId == meId) continue; // skip current user's posts
+        final name = author['fullName'] ?? author['name'] ?? 'Unknown';
+        final username = author['username'] ?? (authorId != null ? authorId.substring(0, 6) : 'user');
+        final content = p['content'] ?? '';
+        final media = p['media'];
+        final mediaUrls = media is List ? List<String>.from(media).map((url) => url.startsWith('/') ? '${ApiConfig.baseUrl}$url' : url).toList() : <String>[];
+        final likes = (p['likesCount'] ?? p['likes'] ?? 0) as int;
+        final comments = (p['commentsCount'] ?? 0) as int;
+        final genre = p['genre'] as String?;
+        final liked = (p['liked'] ?? false) as bool;
+        final following = (author['isFollowed'] ?? false) as bool;
+        mapped.add(_Post(
+          name: name,
+          handle: '@' + username,
+          ago: 'just now',
+          body: content,
+          media: mediaUrls,
+          avatarColor: const Color(0xFF7C3AED),
+          verified: false,
+          filmmaker: false,
+          genre: genre,
+          tags: const [],
+          likes: likes,
+          comments: comments,
+          shares: 0,
+          views: 0,
+          id: p['_id']?.toString(),
+          authorId: authorId,
+        )..liked = liked..following = following);
+      }
+      return mapped;
+    } catch (_) {
+      return [];
+    }
   }
 
   List<_Post> _buildPosts({int seed = 0}) {
@@ -330,12 +348,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     ];
     return List.generate(data.length, (i) {
       final d = data[(i + seed ~/ data.length) % data.length];
-      return _Post(
+        return _Post(
         name: d.name,
         handle: d.handle,
         ago: '${rng.nextInt(22) + 1}h',
         body: d.body,
-        imageLabel: d.img,
+        media: d.img != null ? ['https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=600&auto=format&fit=crop'] : [],
         avatarColor: d.color,
         verified: d.v,
         filmmaker: d.f,
@@ -345,10 +363,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         comments: rng.nextInt(980) + 40,
         shares: rng.nextInt(490) + 20,
         views: d.views + rng.nextInt(5000),
+          id: null,
+          authorId: null,
       );
     });
   }
 
+  // ── Filtered profiles for search ─────────────────────────────
   List<ProfileData> get _searchResults {
     if (_query.isEmpty) return [];
     final q = _query.toLowerCase();
@@ -382,12 +403,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       body: SafeArea(
         child: Column(
           children: [
+            // ── Header ──────────────────────────────────────
             _buildHeader(),
+
+            // ── Category chips ───────────────────────────────
             _buildCategories(),
+
+            // ── Scrollable body with floating search ─────────
             Expanded(
               child: Stack(
                 children: [
-                  // ── Main feed ──────────────────────────────
+                  // ── Main feed ────────────────────────────────
                   RefreshIndicator(
                     color: _C.accentSoft,
                     backgroundColor: _C.card,
@@ -399,9 +425,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       physics: const BouncingScrollPhysics(
                           parent: AlwaysScrollableScrollPhysics()),
                       slivers: [
-                        const SliverToBoxAdapter(child: SizedBox(height: 68)),
+                        // Spacer so content starts below search bar
+                        const SliverToBoxAdapter(
+                            child: SizedBox(height: 68)),
+
+                        // Featured Carousel
                         SliverToBoxAdapter(child: _buildCarousel()),
+
+                        // Section label
                         SliverToBoxAdapter(child: _buildSectionLabel()),
+
+                        // Instagram-style posts (hidden when searching)
                         if (_query.isEmpty)
                           SliverList(
                             delegate: SliverChildBuilderDelegate(
@@ -416,28 +450,55 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                   key: ValueKey('post_$i'),
                                   post: p,
                                   index: i,
-                                  onLike: () => setState(() {
-                                    p.liked = !p.liked;
-                                    p.likes += p.liked ? 1 : -1;
+                                  onLike: () async {
+                                    // optimistic UI update
+                                    setState(() {
+                                      p.liked = !p.liked;
+                                      p.likes += p.liked ? 1 : -1;
+                                    });
                                     HapticFeedback.lightImpact();
-                                  }),
+                                    // attempt backend call; if fails, revert
+                                    try {
+                                                              if (p.id == null) return;
+                                                              final auth = AuthService();
+                                                              final success = p.liked
+                                                                  ? await auth.likePost(p.id!)
+                                                                  : await auth.unlikePost(p.id!);
+                                      if (!success && mounted) {
+                                        setState(() {
+                                          p.liked = !p.liked;
+                                          p.likes += p.liked ? 1 : -1;
+                                        });
+                                      }
+                                    } catch (_) {}
+                                  },
                                   onBookmark: () {
-                                    setState(
-                                        () => p.bookmarked = !p.bookmarked);
+                                    setState(() => p.bookmarked = !p.bookmarked);
                                     HapticFeedback.selectionClick();
                                   },
-                                  onFollow: () => setState(
-                                      () => p.following = !p.following),
+                                  onFollow: () async {
+                                    setState(() => p.following = !p.following);
+                                    try {
+                                      if (p.authorId == null) return;
+                                      final auth = AuthService();
+                                      final success = p.following
+                                          ? await auth.follow(p.authorId!)
+                                          : await auth.unfollow(p.authorId!);
+                                      if (!success && mounted) {
+                                        setState(() => p.following = !p.following);
+                                      }
+                                    } catch (_) {}
+                                  },
                                 );
                               },
-                              childCount: _posts.length + 1,
+                              childCount: _posts.length + (_hasMoreFeed ? 1 : 0),
                             ),
                           ),
                       ],
                     ),
                   ),
 
-                  // ── Profile search results overlay ──────────
+                  // ── Profile search results overlay ────────────
                   if (_query.isNotEmpty)
                     Positioned(
                       top: 68,
@@ -447,36 +508,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       child: _buildProfileResults(),
                     ),
 
-                  // ── Floating search bar ─────────────────────
+                  // ── Floating search bar ───────────────────────
                   Positioned(
                     top: 8,
                     right: 20,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 400),
-                      curve: Curves.fastOutSlowIn,
-                      width: _searchExpanded ? sw - 40 : 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: _C.card,
-                        borderRadius: BorderRadius.circular(
-                            _searchExpanded ? 20 : 26),
-                        border: Border.all(
+                    child: AnimatedGradientBorder(
+                      isActive: _searchExpanded,
+                      backgroundColor: _C.card,
+                      boxShadow: [
+                        BoxShadow(
                           color: _searchExpanded
-                              ? _C.accent.withOpacity(0.45)
-                              : _C.cardBorder,
-                          width: _searchExpanded ? 1.0 : 0.8,
+                              ? _C.accent.withOpacity(0.12)
+                              : Colors.black.withOpacity(0.4),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _searchExpanded
-                                ? _C.accent.withOpacity(0.12)
-                                : Colors.black.withOpacity(0.4),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      clipBehavior: Clip.hardEdge,
+                      ],
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.fastOutSlowIn,
+                        width: _searchExpanded ? sw - 40 : 52,
+                        height: 52,
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 250),
                         child: _searchExpanded
@@ -485,6 +537,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
+                ),
                 ],
               ),
             ),
@@ -494,6 +547,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // ── Expanded search bar ─────────────────────────────────────
   Widget _buildExpandedSearch() {
     return ClipRect(
       key: const ValueKey('expanded'),
@@ -512,8 +566,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 child: TextField(
                   controller: _searchCtrl,
                   onChanged: (v) => setState(() => _query = v),
-                  style:
-                      const TextStyle(color: _C.textPrimary, fontSize: 13),
+                  style: const TextStyle(
+                      color: _C.textPrimary, fontSize: 13),
                   decoration: const InputDecoration(
                     border: InputBorder.none,
                     hintText: 'Search films, directors, talent...',
@@ -535,7 +589,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               IconButton(
                 icon: Icon(Icons.chevron_right_rounded,
                     color: _C.textSec.withOpacity(0.6)),
-                onPressed: () => setState(() => _searchExpanded = false),
+                onPressed: () =>
+                    setState(() => _searchExpanded = false),
               ),
             ],
           ),
@@ -544,6 +599,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // ── Collapsed search (round icon) ──────────────────────────
   Widget _buildCollapsedSearch() {
     return GestureDetector(
       key: const ValueKey('collapsed'),
@@ -555,6 +611,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // ── Profile search results ──────────────────────────────────
   Widget _buildProfileResults() {
     final results = _searchResults;
     return Container(
@@ -577,7 +634,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   const SizedBox(height: 6),
                   const Text(
                     'Try searching by name, role or skill',
-                    style: TextStyle(color: _C.textMuted, fontSize: 12),
+                    style:
+                        TextStyle(color: _C.textMuted, fontSize: 12),
                   ),
                 ],
               ),
@@ -594,15 +652,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // ── Header ──────────────────────────────────────────────────
+  //
+  //  ╔══════════════════════════════════════════════════════════╗
+  //  ║  CHANGE: LIVE badge → + (Create Post) button            ║
+  //  ╚══════════════════════════════════════════════════════════╝
   Widget _buildHeader() {
     return Container(
       color: _C.bg,
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
       child: Row(
         children: [
+          // ── + Create Post button (replaces LIVE badge) ──────
           GestureDetector(
             onTap: () {
               HapticFeedback.mediumImpact();
+              // TODO: Replace with your actual PostPage navigation, e.g.:
+              // Navigator.push(
+              //   context,
+              //   MaterialPageRoute(builder: (_) => const PostPage()),
+              // );
               _showCreatePostSheet(context);
             },
             child: Container(
@@ -623,11 +692,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ),
                 ],
               ),
-              child: const Icon(Icons.add_rounded,
-                  color: Colors.white, size: 22),
+              child: const Icon(
+                Icons.add_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
             ),
           ),
+
           const SizedBox(width: 10),
+
+          // ── App name ────────────────────────────────────────
           ShaderMask(
             shaderCallback: (b) =>
                 const LinearGradient(colors: [_C.accentSoft, _C.rose])
@@ -641,7 +716,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   letterSpacing: -1.2),
             ),
           ),
+
           const Spacer(),
+
+          // ── Messages button (navigates to Messages tab) ─────
           _HeaderBtn(
             icon: Icons.chat_bubble_outline_rounded,
             badge: widget.unreadMessages,
@@ -651,21 +729,51 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             },
           ),
           const SizedBox(width: 8),
+
+          // ── Notifications ───────────────────────────────────
           _HeaderBtn(icon: Icons.notifications_none_rounded, badge: 7),
         ],
       ),
     );
   }
 
+  // ── Create Post bottom sheet ────────────────────────────────
+  //  Replace this with a full-screen PostPage push if you prefer.
   void _showCreatePostSheet(BuildContext context) {
-    showModalBottomSheet(
+    // await result from sheet; newly created post will be returned and inserted into feed
+    showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _CreatePostSheet(),
-    );
+    ).then((created) {
+      if (created != null && mounted) {
+        // Map created post (backend shape) into local _Post model where possible
+        setState(() {
+          _posts.insert(0, _Post(
+            name: created['author']?['fullName'] ?? 'You',
+            handle: '@' + (created['author']?['username'] ?? 'me'),
+            ago: 'just now',
+            body: created['content'] ?? '',
+            media: created['media'] != null ? List<String>.from(created['media']) : [],
+            avatarColor: const Color(0xFF7C3AED),
+            verified: false,
+            filmmaker: false,
+            genre: created['genre'],
+            tags: const [],
+            likes: created['likesCount'] ?? 0,
+            comments: created['commentsCount'] ?? 0,
+            shares: 0,
+            views: 0,
+            id: created['_id']?.toString(),
+            authorId: created['author']?['_id']?.toString(),
+          ));
+        });
+      }
+    });
   }
 
+  // ── Category chips ───────────────────────────────────────────
   Widget _buildCategories() {
     return Container(
       color: _C.bg,
@@ -713,6 +821,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // ── Flipkart-style carousel ──────────────────────────────────
   Widget _buildCarousel() {
     return Column(
       children: [
@@ -724,10 +833,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             onPageChanged: (p) => setState(() => _page = p),
             itemCount: _featured.length,
             itemBuilder: (_, i) => _FeaturedCard(
-              featured: _featured[i],
-              pageController: _pageCtrl,
-              pageIndex: i,
-            ),
+                featured: _featured[i],
+                pageController: _pageCtrl,
+                pageIndex: i),
           ),
         ),
         const SizedBox(height: 10),
@@ -756,6 +864,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // ── Section label ────────────────────────────────────────────
   Widget _buildSectionLabel() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -781,7 +890,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         GestureDetector(
           onTap: () {},
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: _C.card,
               borderRadius: BorderRadius.circular(8),
@@ -802,6 +912,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  // ── Shimmer skeleton post ────────────────────────────────────
   Widget _buildShimmerPost() {
     return AnimatedBuilder(
       animation: _shimmer,
@@ -812,7 +923,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           colors: const [
             Color(0xFF111120),
             Color(0xFF1A1A2E),
-            Color(0xFF111120),
+            Color(0xFF111120)
           ],
         );
         return Container(
@@ -825,8 +936,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 Container(
                     width: 42,
                     height: 42,
-                    decoration:
-                        BoxDecoration(shape: BoxShape.circle, gradient: s)),
+                    decoration: BoxDecoration(
+                        shape: BoxShape.circle, gradient: s)),
                 const SizedBox(width: 12),
                 Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -847,7 +958,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ]),
               ]),
             ),
-            Container(height: 280, decoration: BoxDecoration(gradient: s)),
+            Container(
+                height: 280, decoration: BoxDecoration(gradient: s)),
             const SizedBox(height: 60),
           ]),
         );
@@ -858,6 +970,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
 // ─────────────────────────────────────────────────────────────
 //  CREATE POST BOTTOM SHEET
+//  ╔══════════════════════════════════════════════════════════╗
+//  ║  NEW: shown when + button is tapped                     ║
+//  ║  Replace with a full PostPage push if you prefer        ║
+//  ╚══════════════════════════════════════════════════════════╝
 // ─────────────────────────────────────────────────────────────
 class _CreatePostSheet extends StatefulWidget {
   const _CreatePostSheet();
@@ -869,23 +985,81 @@ class _CreatePostSheet extends StatefulWidget {
 class _CreatePostSheetState extends State<_CreatePostSheet> {
   final _ctrl = TextEditingController();
   String _selectedGenre = 'Drama';
-  bool _addMedia = false;
+  bool _isUploading = false;
+  PlatformFile? _pickedMedia;
+  VideoPlayerController? _videoController;
+  String? _uploadedUrl;
 
   static const _genres = [
-    'Drama',
-    'Thriller',
-    'Documentary',
-    'Sci-Fi',
-    'Comedy',
-    'Horror',
-    'Indie',
-    'Festival',
+    'Drama', 'Thriller', 'Documentary', 'Sci-Fi',
+    'Comedy', 'Horror', 'Indie', 'Festival'
   ];
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _videoController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickMedia() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.media,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        setState(() {
+          _pickedMedia = file;
+        });
+
+        if (file.extension?.toLowerCase() == 'mp4' || file.extension?.toLowerCase() == 'mov') {
+          // Note: for web, video player can play from a blob url created from bytes
+          // But uploading it first and playing the network URL is more reliable, so we will do that later or we can play from blob if we construct it.
+          // Actually, let's just upload it immediately.
+          await _uploadFile(file);
+        } else {
+          await _uploadFile(file);
+        }
+      }
+    } catch (e) {
+      debugPrint("Pick error: $e");
+    }
+  }
+
+  Future<void> _uploadFile(PlatformFile file) async {
+    setState(() => _isUploading = true);
+    try {
+      final formData = dio.FormData.fromMap({
+        'media': dio.MultipartFile.fromBytes(file.bytes!, filename: file.name),
+      });
+      
+      final response = await ApiClient().post('/api/upload', data: formData);
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data['ok'] == true && data['url'] != null) {
+          setState(() {
+            _uploadedUrl = '${ApiConfig.baseUrl}${data['url']}';
+          });
+          if (file.extension?.toLowerCase() == 'mp4' || file.extension?.toLowerCase() == 'mov') {
+            _videoController = VideoPlayerController.networkUrl(Uri.parse(_uploadedUrl!))
+              ..initialize().then((_) {
+                setState(() {});
+                _videoController!.setVolume(1.0);
+                _videoController!.play();
+                _videoController!.setLooping(true);
+              });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Upload error: $e");
+    } finally {
+      setState(() => _isUploading = false);
+    }
   }
 
   @override
@@ -901,6 +1075,7 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
         ),
         child: Column(
           children: [
+            // ── Handle ────────────────────────────────────────
             const SizedBox(height: 12),
             Container(
               width: 40,
@@ -911,6 +1086,8 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // ── Title bar ─────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
@@ -951,11 +1128,14 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
               ),
             ),
             const SizedBox(height: 20),
+
+            // ── Scrollable body ───────────────────────────────
             Expanded(
               child: ListView(
                 controller: scrollCtrl,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: [
+                  // Text field
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -980,6 +1160,8 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // Genre picker
                   const Text('Genre',
                       style: TextStyle(
                           color: _C.textSec,
@@ -992,7 +1174,8 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
                     children: _genres.map((g) {
                       final sel = g == _selectedGenre;
                       return GestureDetector(
-                        onTap: () => setState(() => _selectedGenre = g),
+                        onTap: () =>
+                            setState(() => _selectedGenre = g),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           padding: const EdgeInsets.symmetric(
@@ -1014,8 +1197,7 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
                           ),
                           child: Text(g,
                               style: TextStyle(
-                                  color:
-                                      sel ? Colors.white : _C.textSec,
+                                  color: sel ? Colors.white : _C.textSec,
                                   fontSize: 12,
                                   fontWeight: sel
                                       ? FontWeight.w700
@@ -1025,17 +1207,19 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
                     }).toList(),
                   ),
                   const SizedBox(height: 20),
+
+                  // Add media row
                   GestureDetector(
-                    onTap: () => setState(() => _addMedia = !_addMedia),
+                    onTap: _pickMedia,
                     child: Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: _addMedia
+                        color: _pickedMedia != null
                             ? _C.accent.withOpacity(0.08)
                             : const Color(0xFF111120),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: _addMedia
+                          color: _pickedMedia != null
                               ? _C.accent.withOpacity(0.4)
                               : const Color(0xFF1A1A2E),
                           width: 0.8,
@@ -1043,35 +1227,85 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
                       ),
                       child: Row(children: [
                         Icon(
-                          _addMedia
+                          _pickedMedia != null
                               ? Icons.photo_rounded
                               : Icons.add_photo_alternate_outlined,
-                          color: _addMedia ? _C.accentSoft : _C.textSec,
+                          color:
+                              _pickedMedia != null ? _C.accentSoft : _C.textSec,
                           size: 20,
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          _addMedia
-                              ? 'Media attached'
+                          _pickedMedia != null
+                              ? 'Media attached (${_pickedMedia!.name})'
                               : 'Add photo / video',
                           style: TextStyle(
-                              color:
-                                  _addMedia ? _C.accentSoft : _C.textSec,
+                              color: _pickedMedia != null
+                                  ? _C.accentSoft
+                                  : _C.textSec,
                               fontSize: 13,
                               fontWeight: FontWeight.w600),
                         ),
                         const Spacer(),
-                        if (_addMedia)
-                          const Icon(Icons.check_circle_rounded,
-                              color: _C.accent, size: 18),
+                        if (_isUploading)
+                          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: _C.accent))
+                        else if (_uploadedUrl != null)
+                          const Icon(Icons.check_circle_rounded, color: _C.accent, size: 18),
                       ]),
                     ),
                   ),
+
+                  // Preview area
+                  if (_uploadedUrl != null) ...[
+                    const SizedBox(height: 16),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _videoController != null && _videoController!.value.isInitialized
+                          ? AspectRatio(
+                              aspectRatio: _videoController!.value.aspectRatio,
+                              child: VideoPlayer(_videoController!),
+                            )
+                          : Image.network(_uploadedUrl!, fit: BoxFit.cover, height: 200, width: double.infinity),
+                    ),
+                  ],
+
                   const SizedBox(height: 28),
+
+                  // Post button
                   GestureDetector(
-                    onTap: () {
+                    onTap: () async {
+                      if (_isUploading) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please wait for media to finish uploading')));
+                        return;
+                      }
                       HapticFeedback.mediumImpact();
-                      Navigator.pop(context);
+                      setState(() {});
+                      final content = _ctrl.text.trim();
+                      if (content.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Write something to post')));
+                        return;
+                      }
+                      // show a small loading indicator
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (_) => const Center(child: CircularProgressIndicator(color: _C.accent)),
+                      );
+                      
+                      final mediaList = _uploadedUrl != null ? [_uploadedUrl!] : null;
+
+                      try {
+                        final created = await AuthService().createPost(content, media: mediaList);
+                        if (mounted) {
+                          Navigator.pop(context); // close loader
+                          Navigator.pop(context, created); // close sheet
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
+                      }
                     },
                     child: Container(
                       height: 52,
@@ -1142,6 +1376,7 @@ class _SearchProfileCard extends StatelessWidget {
         ),
         child: Row(
           children: [
+            // Avatar
             Container(
               width: 52,
               height: 52,
@@ -1155,6 +1390,8 @@ class _SearchProfileCard extends StatelessWidget {
               child: Icon(profile.icon, color: Colors.white, size: 24),
             ),
             const SizedBox(width: 12),
+
+            // Info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1179,9 +1416,11 @@ class _SearchProfileCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text(profile.role,
-                      style:
-                          const TextStyle(color: _C.textSec, fontSize: 11)),
+                  Text(
+                    profile.role,
+                    style:
+                        const TextStyle(color: _C.textSec, fontSize: 11),
+                  ),
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 5,
@@ -1200,7 +1439,8 @@ class _SearchProfileCard extends StatelessWidget {
                               ),
                               child: Text(s,
                                   style: const TextStyle(
-                                      color: _C.accentSoft, fontSize: 10)),
+                                      color: _C.accentSoft,
+                                      fontSize: 10)),
                             ))
                         .toList(),
                   ),
@@ -1208,8 +1448,11 @@ class _SearchProfileCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
+
+            // Type badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                     colors: [profile.color1, profile.color2]),
@@ -1240,7 +1483,10 @@ class _HeaderBtn extends StatelessWidget {
   final VoidCallback? onTap;
 
   const _HeaderBtn(
-      {required this.icon, this.badge = 0, this.active = false, this.onTap});
+      {required this.icon,
+      this.badge = 0,
+      this.active = false,
+      this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1286,7 +1532,7 @@ class _HeaderBtn extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  FEATURED CARD  (photo background + gradient scrim)
+//  FEATURED CARD  (Flipkart-style full-width banner)
 // ─────────────────────────────────────────────────────────────
 class _FeaturedCard extends StatelessWidget {
   final _Featured featured;
@@ -1299,18 +1545,6 @@ class _FeaturedCard extends StatelessWidget {
     required this.pageIndex,
   });
 
-  // Fallback gradient shown while the photo loads or on error
-  Widget _placeholder() => DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [featured.c1, featured.c2],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: const SizedBox.expand(),
-      );
-
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -1322,7 +1556,8 @@ class _FeaturedCard extends StatelessWidget {
           value = (1 - (value.abs() * 0.12)).clamp(0.0, 1.0);
         }
         return Transform.scale(
-          scale: pageController.position.haveDimensions ? value : 1.0,
+          scale:
+              pageController.position.haveDimensions ? value : 1.0,
           child: child,
         );
       },
@@ -1332,220 +1567,140 @@ class _FeaturedCard extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
+            gradient: LinearGradient(
+                colors: [featured.c1, featured.c2],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight),
             boxShadow: [
               BoxShadow(
-                color: featured.c1.withOpacity(0.45),
-                blurRadius: 28,
-                offset: const Offset(0, 12),
-              ),
+                  color: featured.c1.withOpacity(0.4),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10))
             ],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(22),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // ── 1. Background photo ────────────────────────
-                Image.asset(
-  featured.imageUrl,
-  fit: BoxFit.cover,
-),
-
-                // ── 2. Colour-tinted scrim (brand identity) ────
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        featured.c2.withOpacity(0.52),
-                        featured.c1.withOpacity(0.68),
-                      ],
-                      begin: Alignment.topRight,
-                      end: Alignment.bottomLeft,
-                    ),
-                  ),
-                ),
-
-                // ── 3. Bottom dark scrim (text legibility) ──────
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withOpacity(0.65),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                    ),
-                    child: const SizedBox(height: 110, width: double.infinity),
-                  ),
-                ),
-
-                // ── 4. Decorative circles ───────────────────────
-                Positioned(
+            child: Stack(children: [
+              Positioned(
                   top: -40,
                   right: -40,
                   child: Container(
-                    width: 160,
-                    height: 160,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.07),
-                    ),
-                  ),
-                ),
-                Positioned(
+                      width: 160,
+                      height: 160,
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.06)))),
+              Positioned(
                   bottom: -30,
                   left: -30,
                   child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.05),
-                    ),
-                  ),
-                ),
-
-                // ── 5. Film strip ───────────────────────────────
-                Positioned(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.04)))),
+              Positioned(
                   top: 0,
                   left: 0,
                   right: 0,
-                  child: _FilmStrip(accent: featured.c1),
-                ),
-
-                // ── 6. Content ──────────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 34, 18, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Badge row
-                      Row(children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.22),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            featured.badge,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(featured.icon,
-                              color: Colors.white, size: 18),
-                        ),
-                      ]),
-
-                      const Spacer(),
-
-                      // Genre pill
+                  child: _FilmStrip(accent: featured.c1)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 34, 18, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.16),
+                          color: Colors.white.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: Text(
-                          featured.genre,
+                        child: Text(featured.badge,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1)),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.16),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(featured.icon,
+                            color: Colors.white, size: 18),
+                      ),
+                    ]),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(featured.genre,
                           style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-
-                      // Title
-                      Text(
-                        featured.title,
+                              color: Colors.white70,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(featured.title,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 23,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.6,
-                          height: 1.1,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-
-                      // Subtitle
-                      Text(
-                        featured.subtitle,
+                            color: Colors.white,
+                            fontSize: 23,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.6,
+                            height: 1.1)),
+                    const SizedBox(height: 3),
+                    Text(featured.subtitle,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.65),
-                          fontSize: 12,
+                            color: Colors.white.withOpacity(0.6),
+                            fontSize: 12)),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      GestureDetector(
+                        onTap: () => HapticFeedback.lightImpact(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 9),
+                          decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12)),
+                          child: Text(featured.cta,
+                              style: TextStyle(
+                                  color: featured.c1,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800)),
                         ),
                       ),
-                      const SizedBox(height: 12),
-
-                      // CTA buttons
-                      Row(children: [
-                        GestureDetector(
-                          onTap: () => HapticFeedback.lightImpact(),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 9),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              featured.cta,
-                              style: TextStyle(
-                                color: featured.c1,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: Colors.white.withOpacity(0.25),
+                              width: 0.8),
                         ),
-                        const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 9),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.16),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.28),
-                              width: 0.8,
-                            ),
-                          ),
-                          child: const Text(
-                            'Details',
+                        child: const Text('Details',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ]),
-                    ],
-                  ),
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ]),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ]),
           ),
         ),
       ),
@@ -1567,20 +1722,19 @@ class _FilmStrip extends StatelessWidget {
       color: Colors.black.withOpacity(0.35),
       child: Row(
         children: List.generate(
-          24,
-          (i) => Expanded(
-            child: Container(
-              margin:
-                  const EdgeInsets.symmetric(horizontal: 1.5, vertical: 5),
-              decoration: BoxDecoration(
-                color: i % 3 == 0
-                    ? accent.withOpacity(0.5)
-                    : Colors.white.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        ),
+            24,
+            (i) => Expanded(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(
+                        horizontal: 1.5, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: i % 3 == 0
+                          ? accent.withOpacity(0.5)
+                          : Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                )),
       ),
     );
   }
@@ -1629,15 +1783,21 @@ class _InstagramPostState extends State<_InstagramPost>
     _heartCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 700));
     _fade = CurvedAnimation(parent: _entryCrl, curve: Curves.easeOut);
-    _slide = Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-        CurvedAnimation(parent: _entryCrl, curve: Curves.easeOutCubic));
+    _slide =
+        Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+            CurvedAnimation(parent: _entryCrl, curve: Curves.easeOutCubic));
     _heartScale = TweenSequence([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.3), weight: 40),
-      TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0), weight: 30),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
-    ]).animate(CurvedAnimation(parent: _heartCtrl, curve: Curves.easeOut));
+      TweenSequenceItem(
+          tween: Tween(begin: 0.0, end: 1.3), weight: 40),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.3, end: 1.0), weight: 30),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.0, end: 0.0), weight: 30),
+    ]).animate(
+        CurvedAnimation(parent: _heartCtrl, curve: Curves.easeOut));
 
-    Future.delayed(Duration(milliseconds: (widget.index % 6) * 80), () {
+    Future.delayed(
+        Duration(milliseconds: (widget.index % 6) * 80), () {
       if (mounted) _entryCrl.forward();
     });
   }
@@ -1668,275 +1828,279 @@ class _InstagramPostState extends State<_InstagramPost>
           margin: const EdgeInsets.only(bottom: 2),
           decoration: const BoxDecoration(color: _C.card),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Post Header ──────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 8, 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Stack(clipBehavior: Clip.none, children: [
-                      Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: p.filmmaker
-                              ? LinearGradient(
-                                  colors: [p.avatarColor, _C.rose],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight)
-                              : const LinearGradient(
-                                  colors: [_C.cardBorder, _C.cardBorder]),
-                        ),
-                        child: Container(
-                          width: 40,
-                          height: 40,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Post Header ──────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 8, 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Stack(clipBehavior: Clip.none, children: [
+                        Container(
+                          padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: p.avatarColor,
-                            border:
-                                Border.all(color: _C.card, width: 2),
+                            gradient: p.filmmaker
+                                ? LinearGradient(
+                                    colors: [p.avatarColor, _C.rose],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight)
+                                : const LinearGradient(colors: [
+                                    _C.cardBorder,
+                                    _C.cardBorder
+                                  ]),
                           ),
-                          child: Center(
-                            child: Text(
-                              p.name[0],
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 17),
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (p.verified)
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
                           child: Container(
-                            width: 16,
-                            height: 16,
+                            width: 40,
+                            height: 40,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: _C.accent,
+                              color: p.avatarColor,
                               border:
-                                  Border.all(color: _C.card, width: 1.5),
+                                  Border.all(color: _C.card, width: 2),
                             ),
-                            child: const Icon(Icons.check_rounded,
-                                color: Colors.white, size: 9),
+                            child: Center(
+                                child: Text(p.name[0],
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 17))),
                           ),
+                        ),
+                        if (p.verified)
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: _C.accent,
+                                border: Border.all(
+                                    color: _C.card, width: 1.5),
+                              ),
+                              child: const Icon(Icons.check_rounded,
+                                  color: Colors.white, size: 9),
+                            ),
+                          ),
+                      ]),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Flexible(
+                                child: Text(p.name,
+                                    style: const TextStyle(
+                                        color: _C.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13.5),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              if (p.filmmaker) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        _C.accent.withOpacity(0.15),
+                                    borderRadius:
+                                        BorderRadius.circular(4),
+                                  ),
+                                  child: const Text('Filmmaker',
+                                      style: TextStyle(
+                                          color: _C.accentSoft,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w700)),
+                                ),
+                              ],
+                            ]),
+                            Text(
+                              p.genre != null
+                                  ? '${p.handle}  ·  ${p.genre}'
+                                  : '${p.handle}  ·  ${p.ago}',
+                              style: const TextStyle(
+                                  color: _C.textMuted, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: widget.onFollow,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 220),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            gradient: p.following
+                                ? null
+                                : const LinearGradient(colors: [
+                                    _C.accent,
+                                    Color(0xFF9B4FE0)
+                                  ]),
+                            color: p.following ? _C.cardBorder : null,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Text(
+                            p.following ? 'Following' : 'Follow',
+                            style: TextStyle(
+                                color: p.following
+                                    ? _C.textSec
+                                    : Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.more_vert_rounded,
+                          color: _C.textMuted, size: 20),
+                    ],
+                  ),
+                ),
+
+                if (p.media.isNotEmpty)
+                  GestureDetector(
+                    onDoubleTap: _doubleTapLike,
+                    child: Stack(alignment: Alignment.center, children: [
+                      _PostMedia(
+                          mediaUrl: p.media.first, accent: p.avatarColor),
+                      if (_showHeart)
+                        ScaleTransition(
+                          scale: _heartScale,
+                          child: const Icon(Icons.favorite_rounded,
+                              color: Colors.white, size: 90),
                         ),
                     ]),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(children: [
-                            Flexible(
-                              child: Text(p.name,
-                                  style: const TextStyle(
-                                      color: _C.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13.5),
-                                  overflow: TextOverflow.ellipsis),
-                            ),
-                            if (p.filmmaker) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 5, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: _C.accent.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text('Filmmaker',
-                                    style: TextStyle(
-                                        color: _C.accentSoft,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w700)),
-                              ),
-                            ],
-                          ]),
-                          Text(
-                            p.genre != null
-                                ? '${p.handle}  ·  ${p.genre}'
-                                : '${p.handle}  ·  ${p.ago}',
-                            style: const TextStyle(
-                                color: _C.textMuted, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: widget.onFollow,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          gradient: p.following
-                              ? null
-                              : const LinearGradient(colors: [
-                                  _C.accent,
-                                  Color(0xFF9B4FE0),
-                                ]),
-                          color: p.following ? _C.cardBorder : null,
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Text(
-                          p.following ? 'Following' : 'Follow',
-                          style: TextStyle(
-                              color: p.following
-                                  ? _C.textSec
-                                  : Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.more_vert_rounded,
-                        color: _C.textMuted, size: 20),
-                  ],
-                ),
-              ),
+                  ),
 
-              // ── Media or text body ───────────────────────────
-              if (p.imageLabel != null)
-                GestureDetector(
-                  onDoubleTap: _doubleTapLike,
-                  child: Stack(alignment: Alignment.center, children: [
-                    _PostMedia(label: p.imageLabel!, accent: p.avatarColor),
-                    if (_showHeart)
-                      ScaleTransition(
-                        scale: _heartScale,
-                        child: const Icon(Icons.favorite_rounded,
-                            color: Colors.white, size: 90),
-                      ),
+                if (p.media.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: p.avatarColor.withOpacity(0.07),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: p.avatarColor.withOpacity(0.15),
+                          width: 0.8),
+                    ),
+                    child: Text(p.body,
+                        style: const TextStyle(
+                            color: _C.textPrimary,
+                            fontSize: 14,
+                            height: 1.55)),
+                  ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 6, 6, 2),
+                  child: Row(children: [
+                    _PostAction(
+                      icon: p.liked
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      color: p.liked ? _C.rose : _C.textPrimary,
+                      onTap: widget.onLike,
+                    ),
+                    const SizedBox(width: 2),
+                    _PostAction(
+                        icon: Icons.chat_bubble_outline_rounded,
+                        color: _C.textPrimary,
+                        onTap: () {}),
+                    const SizedBox(width: 2),
+                    _PostAction(
+                        icon: Icons.send_outlined,
+                        color: _C.textPrimary,
+                        onTap: () {}),
+                    const Spacer(),
+                    _PostAction(
+                      icon: p.bookmarked
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_border_rounded,
+                      color: p.bookmarked ? _C.amber : _C.textPrimary,
+                      onTap: widget.onBookmark,
+                    ),
                   ]),
                 ),
 
-              if (p.imageLabel == null)
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: p.avatarColor.withOpacity(0.07),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: p.avatarColor.withOpacity(0.15),
-                        width: 0.8),
-                  ),
-                  child: Text(p.body,
-                      style: const TextStyle(
-                          color: _C.textPrimary, fontSize: 14, height: 1.55)),
-                ),
-
-              // ── Actions row ──────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 6, 6, 2),
-                child: Row(children: [
-                  _PostAction(
-                    icon: p.liked
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_border_rounded,
-                    color: p.liked ? _C.rose : _C.textPrimary,
-                    onTap: widget.onLike,
-                  ),
-                  const SizedBox(width: 2),
-                  _PostAction(
-                      icon: Icons.chat_bubble_outline_rounded,
-                      color: _C.textPrimary,
-                      onTap: () {}),
-                  const SizedBox(width: 2),
-                  _PostAction(
-                      icon: Icons.send_outlined,
-                      color: _C.textPrimary,
-                      onTap: () {}),
-                  const Spacer(),
-                  _PostAction(
-                    icon: p.bookmarked
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_border_rounded,
-                    color: p.bookmarked ? _C.amber : _C.textPrimary,
-                    onTap: widget.onBookmark,
-                  ),
-                ]),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 2, 14, 4),
-                child: Text('${_fmt(p.likes)} likes',
-                    style: const TextStyle(
-                        color: _C.textPrimary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700)),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-                child: RichText(
-                  text: TextSpan(children: [
-                    TextSpan(
-                      text: '${p.name.split(' ').first}  ',
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 2, 14, 4),
+                  child: Text('${_fmt(p.likes)} likes',
                       style: const TextStyle(
                           color: _C.textPrimary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13),
-                    ),
-                    TextSpan(
-                      text: p.body
-                          .split('\n')
-                          .first
-                          .replaceAll(RegExp(r'\s+'), ' '),
-                      style: const TextStyle(
-                          color: _C.textSec, fontSize: 13, height: 1.4),
-                    ),
-                  ]),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700)),
                 ),
-              ),
 
-              if (p.tags.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-                  child: Wrap(
-                    spacing: 6,
-                    children: p.tags
-                        .map((t) => GestureDetector(
-                              onTap: () {},
-                              child: Text(t,
-                                  style: const TextStyle(
-                                      color: _C.accentSoft,
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600)),
-                            ))
-                        .toList(),
+                  child: RichText(
+                    text: TextSpan(children: [
+                      TextSpan(
+                        text: '${p.name.split(' ').first}  ',
+                        style: const TextStyle(
+                            color: _C.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13),
+                      ),
+                      TextSpan(
+                        text: p.body
+                            .split('\n')
+                            .first
+                            .replaceAll(RegExp(r'\s+'), ' '),
+                        style: const TextStyle(
+                            color: _C.textSec,
+                            fontSize: 13,
+                            height: 1.4),
+                      ),
+                    ]),
                   ),
                 ),
 
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
-                child: GestureDetector(
-                  onTap: () {},
-                  child: Text('View all ${_fmt(p.comments)} comments',
-                      style: const TextStyle(
-                          color: _C.textMuted, fontSize: 12.5)),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 1, 14, 14),
-                child: Text(p.ago,
-                    style: const TextStyle(
-                        color: _C.textMuted,
-                        fontSize: 10.5,
-                        letterSpacing: 0.2)),
-              ),
+                if (p.tags.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+                    child: Wrap(
+                      spacing: 6,
+                      children: p.tags
+                          .map((t) => GestureDetector(
+                                onTap: () {},
+                                child: Text(t,
+                                    style: const TextStyle(
+                                        color: _C.accentSoft,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600)),
+                              ))
+                          .toList(),
+                    ),
+                  ),
 
-              Container(height: 0.5, color: _C.cardBorder),
-            ],
-          ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
+                  child: GestureDetector(
+                    onTap: () {},
+                    child: Text(
+                        'View all ${_fmt(p.comments)} comments',
+                        style: const TextStyle(
+                            color: _C.textMuted, fontSize: 12.5)),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 1, 14, 14),
+                  child: Text(p.ago,
+                      style: const TextStyle(
+                          color: _C.textMuted,
+                          fontSize: 10.5,
+                          letterSpacing: 0.2)),
+                ),
+
+                Container(height: 0.5, color: _C.cardBorder),
+              ]),
         ),
       ),
     );
@@ -1947,9 +2111,9 @@ class _InstagramPostState extends State<_InstagramPost>
 //  POST MEDIA
 // ─────────────────────────────────────────────────────────────
 class _PostMedia extends StatefulWidget {
-  final String label;
+  final String mediaUrl;
   final Color accent;
-  const _PostMedia({required this.label, required this.accent});
+  const _PostMedia({required this.mediaUrl, required this.accent});
 
   @override
   State<_PostMedia> createState() => _PostMediaState();
@@ -1960,6 +2124,8 @@ class _PostMediaState extends State<_PostMedia>
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
   bool _playing = false;
+  VideoPlayerController? _videoCtrl;
+  bool _isVideo = false;
 
   @override
   void initState() {
@@ -1968,128 +2134,100 @@ class _PostMediaState extends State<_PostMedia>
         vsync: this, duration: const Duration(milliseconds: 160));
     _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
         CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+        
+    final url = widget.mediaUrl.toLowerCase();
+    if (url.endsWith('.mp4') || url.endsWith('.mov')) {
+      _isVideo = true;
+      _videoCtrl = VideoPlayerController.networkUrl(Uri.parse(widget.mediaUrl))
+        ..initialize().then((_) {
+          if (mounted) setState(() {});
+          _videoCtrl!.setVolume(1.0);
+          _videoCtrl!.setLooping(true);
+        });
+    }
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _videoCtrl?.dispose();
     super.dispose();
+  }
+
+  void _togglePlay() {
+    if (_videoCtrl != null && _videoCtrl!.value.isInitialized) {
+      setState(() {
+        if (_videoCtrl!.value.isPlaying) {
+          _videoCtrl!.pause();
+          _playing = false;
+        } else {
+          _videoCtrl!.play();
+          _playing = true;
+        }
+      });
+    }
+    HapticFeedback.lightImpact();
+    _ctrl.forward().then((_) => _ctrl.reverse());
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        setState(() => _playing = !_playing);
-        _ctrl.forward().then((_) => _ctrl.reverse());
-        HapticFeedback.lightImpact();
-      },
-      child: ScaleTransition(
-        scale: _scale,
-        child: SizedBox(
+    return ScaleTransition(
+      scale: _scale,
+      child: GestureDetector(
+        onTap: _togglePlay,
+        child: Container(
           width: double.infinity,
-          height: 300,
-          child: Stack(children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    widget.accent.withOpacity(0.18),
-                    const Color(0xFF080812),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-            ),
-            Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _FilmStrip(accent: widget.accent)),
-            Positioned.fill(child: CustomPaint(painter: _GrainPainter())),
-            Center(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 280),
-                width: _playing ? 56 : 64,
-                height: _playing ? 56 : 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _playing
-                      ? widget.accent
-                      : widget.accent.withOpacity(0.18),
-                  border: Border.all(
-                      color: widget.accent.withOpacity(0.55), width: 2),
-                  boxShadow: _playing
-                      ? [
-                          BoxShadow(
-                              color: widget.accent.withOpacity(0.45),
-                              blurRadius: 22)
-                        ]
-                      : [],
-                ),
-                child: Icon(
-                    _playing
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    color: Colors.white,
-                    size: 28),
-              ),
-            ),
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(14, 30, 14, 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.78),
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                child: Row(children: [
-                  Expanded(
-                      child: Text(widget.label,
-                          style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5))),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(6),
+          margin: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0C0C18),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: widget.accent.withOpacity(0.3), width: 1.5),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: AspectRatio(
+              aspectRatio: _isVideo && _videoCtrl != null && _videoCtrl!.value.isInitialized
+                  ? _videoCtrl!.value.aspectRatio
+                  : 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_isVideo && _videoCtrl != null && _videoCtrl!.value.isInitialized)
+                    VideoPlayer(_videoCtrl!)
+                  else if (!_isVideo)
+                    Image.network(widget.mediaUrl, fit: BoxFit.cover, errorBuilder: (_,__,___) => const Center(child: Icon(Icons.broken_image, color: Colors.white54))),
+                  
+                  if (_isVideo)
+                    AnimatedOpacity(
+                      opacity: _playing ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Container(
+                        color: Colors.black45,
+                        child: Center(
+                          child: Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: widget.accent,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: widget.accent.withOpacity(0.5),
+                                  blurRadius: 12,
+                                )
+                              ],
+                            ),
+                            child: const Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 28),
+                          ),
+                        ),
+                      ),
                     ),
-                    child: const Text('2:34',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700)),
-                  ),
-                ]),
+                ],
               ),
             ),
-            Positioned(
-              top: 30,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.45),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.fullscreen_rounded,
-                    color: Colors.white70, size: 16),
-              ),
-            ),
-          ]),
+          ),
         ),
       ),
     );

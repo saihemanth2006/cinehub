@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../services/auth_service.dart';
+import 'package:provider/provider.dart';
+import '../../features/auth/auth_provider.dart';
 import '../auth/login_screen.dart';
 import '../notifications/notifications_page.dart';
 
@@ -165,30 +167,14 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<void> _loadProfileFromBackend() async {
     try {
-      // attempt to read cached user first
-      final auth = AuthService();
-      if (auth.user != null) {
+      final authProvider = context.read<AuthProvider>();
+      if (authProvider.user != null) {
         setState(() {
-          _displayName = auth.user?['fullName'] ?? _displayName;
-          _displayRole = auth.user?['role'] ?? _displayRole;
-          _displayLocation = auth.user?['location'] ?? auth.user?['city'] ?? _displayLocation;
-          _aboutFull = auth.user?['bio'] ?? _aboutFull;
+          _displayName = authProvider.user?['fullName'] ?? _displayName;
+          _displayRole = authProvider.user?['role'] ?? _displayRole;
+          _displayLocation = authProvider.user?['location'] ?? authProvider.user?['city'] ?? _displayLocation;
+          _aboutFull = authProvider.user?['bio'] ?? _aboutFull;
         });
-          // even when we have cached user info, refresh follower/following counts
-          await _refreshStats();
-          return;
-      }
-      // try fetching /me if token exists
-      final me = await auth.fetchMe();
-      if (me != null) {
-        if (!mounted) return;
-        setState(() {
-          _displayName = me['fullName'] ?? _displayName;
-          _displayRole = me['role'] ?? _displayRole;
-          _displayLocation = me['location'] ?? me['city'] ?? _displayLocation;
-          _aboutFull = me['bio'] ?? _aboutFull;
-        });
-        // load followers/following counts
         await _refreshStats();
       }
     } catch (_) {}
@@ -196,10 +182,10 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<void> _refreshStats() async {
     try {
-      final auth = AuthService();
-      final myId = auth.user != null ? auth.user!['_id']?.toString() : null;
+      final authProvider = context.read<AuthProvider>();
+      final myId = authProvider.user != null ? authProvider.user!['_id']?.toString() : null;
       if (myId == null) return;
-      final stats = await auth.fetchUserStats(myId);
+      final stats = await AuthService().fetchUserStats(myId);
       if (!mounted || stats == null) return;
       setState(() {
         _followersCount = stats['followers'] ?? _followersCount;
@@ -969,9 +955,10 @@ class _FollowersPageState extends State<FollowersPage> with SingleTickerProvider
   Future<void> _loadLists() async {
     setState(() => _loading = true);
     try {
-      final auth = AuthService();
-      final myId = auth.user != null ? auth.user!['_id']?.toString() : null;
+      final authProvider = context.read<AuthProvider>();
+      final myId = authProvider.user != null ? authProvider.user!['_id']?.toString() : null;
       if (myId == null) return;
+      final auth = AuthService();
       final f = await auth.fetchFollowers(myId);
       final g = await auth.fetchFollowing(myId);
       if (!mounted) return;
@@ -1019,9 +1006,10 @@ class _FollowersPageState extends State<FollowersPage> with SingleTickerProvider
           trailing: ElevatedButton(
             onPressed: () async {
               // allow follow/unfollow back
-              final auth = AuthService();
-              final me = auth.user;
+              final authProvider = context.read<AuthProvider>();
+              final me = authProvider.user;
               if (me == null) return;
+              final auth = AuthService();
               final isFollowing = _following.any((f) => (f['_id']?.toString() ?? '') == (it['_id']?.toString() ?? ''));
               bool ok = false;
               if (isFollowing) ok = await auth.unfollow(it['_id']?.toString() ?? '');
@@ -1054,8 +1042,8 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   @override
   void initState() {
     super.initState();
-    final auth = AuthService();
-    final u = auth.user;
+    final authProvider = context.read<AuthProvider>();
+    final u = authProvider.user;
     if (u != null) {
       _nameCtrl.text = u['fullName'] ?? '';
       _roleCtrl.text = u['role'] ?? '';
@@ -1228,11 +1216,11 @@ class _SettingsSheetState extends State<_SettingsSheet> {
           GestureDetector(
             onTap: () async {
               Navigator.pop(context);
-              final auth = AuthService();
-              final success = await auth.logout();
+              final authProvider = context.read<AuthProvider>();
+              await authProvider.logout();
               if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(success ? 'Logged out' : 'Logged out (offline)'),
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Logged out'),
                 behavior: SnackBarBehavior.floating,
               ));
               // Navigate to login screen and clear navigation stack

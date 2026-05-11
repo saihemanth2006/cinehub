@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/models.dart';
+import '../../widgets/animated_gradient_border.dart';
 import 'chat_page.dart';
 
 class MessagesPage extends StatefulWidget {
@@ -22,6 +23,19 @@ class MessagesPage extends StatefulWidget {
 
 class _MessagesPageState extends State<MessagesPage> {
   String _searchQuery = "";
+  final FocusNode _searchFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _searchFocus.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _searchFocus.dispose();
+    super.dispose();
+  }
 
   List<ProfileData> get _collaboratedProfiles =>
       widget.collaborated.map((i) => widget.allProfiles[i]).toList();
@@ -69,33 +83,37 @@ class _MessagesPageState extends State<MessagesPage> {
             // ── Search bar ─────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                height: 46,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.06)),
-                ),
-                child: Row(children: [
-                  const SizedBox(width: 14),
-                  Icon(Icons.search_rounded,
-                      color: Colors.white.withOpacity(0.4), size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                      style:
-                          const TextStyle(fontSize: 13, color: Colors.white),
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        hintText: "Search messages...",
-                        hintStyle: TextStyle(
-                            fontSize: 13,
-                            color: Colors.white.withOpacity(0.3)),
+              child: AnimatedGradientBorder(
+                isActive: _searchFocus.hasFocus,
+                backgroundColor: Colors.white.withOpacity(0.06),
+                child: Container(
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  child: Row(children: [
+                    const SizedBox(width: 14),
+                    Icon(Icons.search_rounded,
+                        color: Colors.white.withOpacity(0.4), size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        focusNode: _searchFocus,
+                        onChanged: (v) => setState(() => _searchQuery = v),
+                        style:
+                            const TextStyle(fontSize: 13, color: Colors.white),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          hintText: "Search messages...",
+                          hintStyle: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white.withOpacity(0.3)),
+                        ),
                       ),
                     ),
-                  ),
-                ]),
+                  ]),
+                ),
               ),
             ),
 

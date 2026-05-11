@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:convert';
+import '../../core/network/api_client.dart';
+import 'job_application_page.dart';
+import 'post_job_page.dart';
+import '../../services/auth_service.dart';
 
 class JobsPage extends StatefulWidget {
   const JobsPage({super.key});
@@ -27,117 +32,78 @@ class _JobsPageState extends State<JobsPage> {
     'Editing', 'Writing', 'Production', 'VFX'
   ];
 
-  static const _jobs = [
-    (
-      title: 'Lead Actor – Feature Film',
-      company: 'Red Curtain Productions',
-      location: 'Mumbai, MH',
-      type: 'On-site',
-      pay: '₹2L–₹5L',
-      category: 'Acting',
-      icon: Icons.theater_comedy_rounded,
-      color1: Color(0xFF7B5CFF),
-      color2: Color(0xFF3A1FA0),
-      urgent: true,
-      posted: '2h ago',
-    ),
-    (
-      title: 'Cinematographer – OTT Series',
-      company: 'StreamVision Studios',
-      location: 'Hyderabad, TS',
-      type: 'Contract',
-      pay: '₹80k/mo',
-      category: 'Cinematography',
-      icon: Icons.camera_rounded,
-      color1: Color(0xFF00BFA5),
-      color2: Color(0xFF004D40),
-      urgent: false,
-      posted: '5h ago',
-    ),
-    (
-      title: 'Screenplay Writer – Thriller',
-      company: 'Noir Pictures',
-      location: 'Remote',
-      type: 'Freelance',
-      pay: '₹50k–₹1.2L',
-      category: 'Writing',
-      icon: Icons.edit_note_rounded,
-      color1: Color(0xFFFF3D6B),
-      color2: Color(0xFF8B0024),
-      urgent: false,
-      posted: '1d ago',
-    ),
-    (
-      title: 'Assistant Director – Short Film',
-      company: 'Indie Frames Co.',
-      location: 'Delhi, DL',
-      type: 'On-site',
-      pay: '₹25k–₹40k',
-      category: 'Direction',
-      icon: Icons.movie_filter_rounded,
-      color1: Color(0xFFFFA726),
-      color2: Color(0xFF6D3400),
-      urgent: true,
-      posted: '3h ago',
-    ),
-    (
-      title: 'VFX Artist – Sci-Fi Feature',
-      company: 'Pixel Storm VFX',
-      location: 'Bengaluru, KA',
-      type: 'Hybrid',
-      pay: '₹60k–₹1.5L',
-      category: 'VFX',
-      icon: Icons.auto_fix_high_rounded,
-      color1: Color(0xFF00D4FF),
-      color2: Color(0xFF003356),
-      urgent: false,
-      posted: '2d ago',
-    ),
-    (
-      title: 'Video Editor – Documentary',
-      company: 'RealLens Films',
-      location: 'Remote',
-      type: 'Freelance',
-      pay: '₹30k–₹60k',
-      category: 'Editing',
-      icon: Icons.cut_rounded,
-      color1: Color(0xFF7C3AED),
-      color2: Color(0xFF2E1065),
-      urgent: false,
-      posted: '4h ago',
-    ),
-    (
-      title: 'Line Producer – Ad Films',
-      company: 'Bolt Creative Agency',
-      location: 'Mumbai, MH',
-      type: 'On-site',
-      pay: '₹70k–₹1L',
-      category: 'Production',
-      icon: Icons.playlist_add_check_rounded,
-      color1: Color(0xFFBE185D),
-      color2: Color(0xFF500724),
-      urgent: true,
-      posted: '6h ago',
-    ),
-  ];
+  List<Map<String, dynamic>> _jobs = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchJobs();
+  }
+
+  String _timeAgo(DateTime d) {
+    final diff = DateTime.now().difference(d);
+    if (diff.inDays > 0) return '${diff.inDays}d ago';
+    if (diff.inHours > 0) return '${diff.inHours}h ago';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+    return 'Just now';
+  }
+
+  Future<void> _fetchJobs() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiClient().get('/api/jobs');
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data['ok']) {
+          final List jobsList = data['jobs'];
+          
+          setState(() {
+            _jobs = jobsList.map((j) {
+              // Map category to UI specific stuff
+              Color c1 = const Color(0xFF7B5CFF);
+              Color c2 = const Color(0xFF3A1FA0);
+              IconData icon = Icons.work_outline_rounded;
+              
+              switch(j['category']) {
+                case 'Acting': c1 = const Color(0xFF7B5CFF); c2 = const Color(0xFF3A1FA0); icon = Icons.theater_comedy_rounded; break;
+                case 'Cinematography': c1 = const Color(0xFF00BFA5); c2 = const Color(0xFF004D40); icon = Icons.camera_rounded; break;
+                case 'Writing': c1 = const Color(0xFFFF3D6B); c2 = const Color(0xFF8B0024); icon = Icons.edit_note_rounded; break;
+                case 'Direction': c1 = const Color(0xFFFFA726); c2 = const Color(0xFF6D3400); icon = Icons.movie_filter_rounded; break;
+                case 'VFX': c1 = const Color(0xFF00D4FF); c2 = const Color(0xFF003356); icon = Icons.auto_fix_high_rounded; break;
+                case 'Editing': c1 = const Color(0xFF7C3AED); c2 = const Color(0xFF2E1065); icon = Icons.cut_rounded; break;
+                case 'Production': c1 = const Color(0xFFBE185D); c2 = const Color(0xFF500724); icon = Icons.playlist_add_check_rounded; break;
+              }
+
+              return {
+                'id': j['_id'],
+                'title': j['title'],
+                'company': j['company'],
+                'location': j['location'],
+                'type': j['type'],
+                'pay': j['pay'],
+                'category': j['category'],
+                'icon': icon,
+                'color1': c1,
+                'color2': c2,
+                'urgent': j['urgent'] ?? false,
+                'posted': j['createdAt'] != null ? _timeAgo(DateTime.parse(j['createdAt'])) : 'Just now',
+              };
+            }).toList();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching jobs: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   List<Map<String, dynamic>> get _filtered {
     return _jobs
         .where((j) =>
-            _selectedFilter == 'All' || j.category == _selectedFilter)
-        .map((j) => {
-              'title': j.title,
-              'company': j.company,
-              'location': j.location,
-              'type': j.type,
-              'pay': j.pay,
-              'category': j.category,
-              'icon': j.icon,
-              'color1': j.color1,
-              'color2': j.color2,
-              'urgent': j.urgent,
-              'posted': j.posted,
-            })
+            _selectedFilter == 'All' || j['category'] == _selectedFilter)
         .toList();
   }
 
@@ -184,7 +150,13 @@ class _JobsPageState extends State<JobsPage> {
                   const Spacer(),
                   // Post a job button
                   GestureDetector(
-                    onTap: () => HapticFeedback.mediumImpact(),
+                    onTap: () async {
+                      HapticFeedback.mediumImpact();
+                      final result = await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PostJobPage()));
+                      if (result == true) {
+                        _fetchJobs();
+                      }
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 9),
@@ -290,13 +262,16 @@ class _JobsPageState extends State<JobsPage> {
 
             // ── Job listings ──────────────────────────────────
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                physics: const BouncingScrollPhysics(),
-                itemCount: _filtered.length,
-                itemBuilder: (_, i) =>
-                    _JobCard(job: _filtered[i], index: i),
-              ),
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(color: _accent))
+                  : _filtered.isEmpty
+                      ? const Center(child: Text("No jobs found", style: TextStyle(color: _textSec)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: _filtered.length,
+                          itemBuilder: (_, i) => _JobCard(job: _filtered[i], index: i),
+                        ),
             ),
           ],
         ),
@@ -558,7 +533,12 @@ class _JobCardState extends State<_JobCard>
                           color: _textMuted, fontSize: 11)),
                   const Spacer(),
                   GestureDetector(
-                    onTap: () => HapticFeedback.mediumImpact(),
+                    onTap: () {
+                      HapticFeedback.mediumImpact();
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => JobApplicationPage(job: j),
+                      ));
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 20, vertical: 9),

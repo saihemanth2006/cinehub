@@ -1,257 +1,109 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../config/api_config.dart';
+import 'api_exceptions.dart';
 
-import '../config/app_config.dart';
-import '../error/exceptions.dart';
-
-/// Centralized HTTP client wrapper using Dio.
-///
-/// Features:
-/// - Auto-injected Bearer token from secure storage
-/// - Automatic 401 → token refresh → retry flow
-/// - Request/response logging in dev
-/// - Request ID propagation
-/// - Timeout configuration per environment
-/// - Network-aware error mapping
 class ApiClient {
+  static final ApiClient _instance = ApiClient._internal();
+  factory ApiClient() => _instance;
+  
   late final Dio dio;
-  final FlutterSecureStorage _secureStorage;
-  final AppConfig _config;
 
-  /// Lock to prevent concurrent token refresh attempts.
-  bool _isRefreshing = false;
-  final List<_RetryRequest> _pendingRequests = [];
-
-  ApiClient({
-    required AppConfig config,
-    FlutterSecureStorage? secureStorage,
-  })  : _config = config,
-        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
+  ApiClient._internal() {
     dio = Dio(
       BaseOptions(
-        baseUrl: config.apiBaseUrl,
-        connectTimeout: config.apiTimeout,
-        receiveTimeout: config.apiTimeout,
-        sendTimeout: config.apiTimeout,
+        baseUrl: ApiConfig.baseUrl,
+        connectTimeout: const Duration(milliseconds: ApiConfig.connectTimeout),
+        receiveTimeout: const Duration(milliseconds: ApiConfig.receiveTimeout),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        validateStatus: (status) => status != null && status < 500,
       ),
     );
 
-    // ── Interceptor Stack (order matters) ────────
-    dio.interceptors.addAll([
-      _AuthInterceptor(this),
-      _RetryInterceptor(this),
-      if (config.enableLogging) _LoggingInterceptor(),
-    ]);
-  }
-
-  // ── Token Management ──────────────────────────
-
-  Future<String?> getAccessToken() =>
-      _secureStorage.read(key: StorageKeys.accessToken);
-
-  Future<String?> getRefreshToken() =>
-      _secureStorage.read(key: StorageKeys.refreshToken);
-
-  Future<void> saveTokens({
-    required String accessToken,
-    required String refreshToken,
-  }) async {
-    await Future.wait([
-      _secureStorage.write(key: StorageKeys.accessToken, value: accessToken),
-      _secureStorage.write(key: StorageKeys.refreshToken, value: refreshToken),
-    ]);
-  }
-
-  Future<void> clearTokens() async {
-    await Future.wait([
-      _secureStorage.delete(key: StorageKeys.accessToken),
-      _secureStorage.delete(key: StorageKeys.refreshToken),
-    ]);
-  }
-
-  /// Attempts to refresh the access token using the stored refresh token.
-  /// Returns `true` on success, `false` if refresh fails (triggers logout).
-  Future<bool> refreshAccessToken() async {
-    if (_isRefreshing) return false;
-    _isRefreshing = true;
-
-    try {
-      final refreshToken = await getRefreshToken();
-      if (refreshToken == null) return false;
-
-      // Use a separate Dio instance to avoid interceptor loops
-      final refreshDio = Dio(BaseOptions(baseUrl: _config.apiBaseUrl));
-      final response = await refreshDio.post(
-        '/auth/refresh-tokens',
-        data: {'refreshToken': refreshToken},
-      );
-
-      if (response.statusCode == 200 && response.data['data'] != null) {
-        final tokens = response.data['data'];
-        await saveTokens(
-          accessToken: tokens['accessToken'],
-          refreshToken: tokens['refreshToken'],
+    dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        // Automatically inject JWT token from SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('auth_token');
+        if (token != null && token.isNotEmpty) {
+          options.headers['Authorization'] = 'Bearer $token';
+        }
+        return handler.next(options); // continue
+      },
+      onResponse: (response, handler) {
+        // You can handle global response formatting here if needed
+        return handler.next(response); // continue
+      },
+      onError: (DioException e, handler) {
+        // Centralized error handling
+        String message = 'An unexpected error occurred';
+        if (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.sendTimeout) {
+          message = 'Connection timed out';
+        } else if (e.type == DioExceptionType.connectionError) {
+          message = 'No internet connection or server unreachable';
+        } else if (e.response != null) {
+          // Try to extract error message from response body
+          final data = e.response?.data;
+          if (data is Map<String, dynamic> && data['error'] != null) {
+            message = data['error'].toString();
+          } else {
+            message = 'Server Error: ${e.response?.statusCode}';
+          }
+        }
+        
+        // Return a custom exception
+        final customError = DioException(
+          requestOptions: e.requestOptions,
+          error: ApiException(message, statusCode: e.response?.statusCode),
+          response: e.response,
+          type: e.type,
         );
+        return handler.next(customError);
+      },
+    ));
+  }
 
-        // Retry all queued requests with new token
-        for (final pending in _pendingRequests) {
-          pending.completer.complete(true);
-        }
-        _pendingRequests.clear();
-        return true;
-      }
-
-      return false;
-    } on DioException {
-      // Refresh failed → clear tokens (force re-login)
-      await clearTokens();
-      for (final pending in _pendingRequests) {
-        pending.completer.complete(false);
-      }
-      _pendingRequests.clear();
-      return false;
-    } finally {
-      _isRefreshing = false;
+  // Helper methods to abstract away Dio specifics from the UI/Providers
+  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) async {
+    try {
+      return await dio.get(path, queryParameters: queryParameters);
+    } catch (e) {
+      _throwCustomException(e);
     }
   }
 
-  /// Queue a request to retry after token refresh completes.
-  Future<bool> queueRetry() {
-    final completer = Completer<bool>();
-    _pendingRequests.add(_RetryRequest(completer));
-    return completer.future;
-  }
-}
-
-// ── Auth Interceptor ─────────────────────────
-
-class _AuthInterceptor extends Interceptor {
-  final ApiClient _client;
-  _AuthInterceptor(this._client);
-
-  @override
-  Future<void> onRequest(
-    RequestOptions options,
-    RequestInterceptorHandler handler,
-  ) async {
-    // Skip auth for public endpoints
-    if (_isPublicEndpoint(options.path)) {
-      return handler.next(options);
+  Future<Response> post(String path, {dynamic data}) async {
+    try {
+      return await dio.post(path, data: data);
+    } catch (e) {
+      _throwCustomException(e);
     }
+  }
 
-    final token = await _client.getAccessToken();
-    if (token != null) {
-      options.headers['Authorization'] = 'Bearer $token';
+  Future<Response> put(String path, {dynamic data}) async {
+    try {
+      return await dio.put(path, data: data);
+    } catch (e) {
+      _throwCustomException(e);
     }
-
-    handler.next(options);
   }
 
-  bool _isPublicEndpoint(String path) {
-    const publicPaths = [
-      '/auth/login',
-      '/auth/register',
-      '/auth/refresh-tokens',
-      '/auth/forgot-password',
-      '/auth/reset-password',
-      '/auth/verify-email',
-    ];
-    return publicPaths.any((p) => path.endsWith(p));
-  }
-}
-
-// ── Retry Interceptor (401 → refresh → retry) ──
-
-class _RetryInterceptor extends Interceptor {
-  final ApiClient _client;
-  _RetryInterceptor(this._client);
-
-  @override
-  Future<void> onError(
-    DioException err,
-    ErrorInterceptorHandler handler,
-  ) async {
-    if (err.response?.statusCode == 401 &&
-        !err.requestOptions.path.contains('refresh-tokens')) {
-      // Attempt token refresh
-      final success = _client._isRefreshing
-          ? await _client.queueRetry()
-          : await _client.refreshAccessToken();
-
-      if (success) {
-        // Retry the original request with the new token
-        final token = await _client.getAccessToken();
-        err.requestOptions.headers['Authorization'] = 'Bearer $token';
-
-        try {
-          final response = await _client.dio.fetch(err.requestOptions);
-          return handler.resolve(response);
-        } on DioException catch (retryErr) {
-          return handler.next(retryErr);
-        }
-      }
+  Future<Response> delete(String path, {dynamic data}) async {
+    try {
+      return await dio.delete(path, data: data);
+    } catch (e) {
+      _throwCustomException(e);
     }
-
-    handler.next(err);
   }
-}
 
-// ── Logging Interceptor ─────────────────────
-
-class _LoggingInterceptor extends Interceptor {
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    debugPrint('┌── API REQUEST ──────────────────────');
-    debugPrint('│ ${options.method} ${options.uri}');
-    if (options.data != null) {
-      debugPrint('│ Body: ${_truncate(options.data.toString())}');
+  Never _throwCustomException(dynamic e) {
+    if (e is DioException && e.error is ApiException) {
+      throw e.error!;
     }
-    debugPrint('└─────────────────────────────────────');
-    handler.next(options);
+    throw ApiException(e.toString());
   }
-
-  @override
-  void onResponse(Response response, ResponseInterceptorHandler handler) {
-    debugPrint('┌── API RESPONSE ─────────────────────');
-    debugPrint('│ ${response.statusCode} ${response.requestOptions.uri}');
-    debugPrint('│ Data: ${_truncate(response.data.toString())}');
-    debugPrint('└─────────────────────────────────────');
-    handler.next(response);
-  }
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) {
-    debugPrint('┌── API ERROR ────────────────────────');
-    debugPrint('│ ${err.response?.statusCode} ${err.requestOptions.uri}');
-    debugPrint('│ ${err.message}');
-    debugPrint('└─────────────────────────────────────');
-    handler.next(err);
-  }
-
-  String _truncate(String s, [int max = 300]) =>
-      s.length > max ? '${s.substring(0, max)}…' : s;
-}
-
-// ── Models ──────────────────────────────────
-
-class _RetryRequest {
-  final Completer<bool> completer;
-  _RetryRequest(this.completer);
-}
-
-/// Secure storage key constants.
-abstract class StorageKeys {
-  static const accessToken = 'cinehub_access_token';
-  static const refreshToken = 'cinehub_refresh_token';
-  static const userId = 'cinehub_user_id';
-  static const userRole = 'cinehub_user_role';
 }

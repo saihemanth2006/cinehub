@@ -41,6 +41,9 @@ dependencies:
   # Device Preview for testing on different devices
   device_preview: ^1.2.0
 
+  # State Management
+  flutter_riverpod: ^2.6.1
+
   # HTTP client for API calls
   http: ^1.1.0
 

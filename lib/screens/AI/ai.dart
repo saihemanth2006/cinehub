@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import '../../ai_features/screens/ai_script_generator_screen.dart';
-import 'package:cinehubapp/ai_features/api_key.dart';
 import '../../widgets/animated_gradient_border.dart';
 
 // ─────────────────────────────────────────────
@@ -364,15 +362,16 @@ class _AIPageState extends State<AIPage> with TickerProviderStateMixin {
                                 fontWeight: FontWeight.w900,
                                 height: 1.22)),
                         const SizedBox(height: 10),
-                        _GlowButton(
-                          label: 'Generate Script',
-                          colors: const [Color(0xFF8B5CF6), Color(0xFF6366F1)],
-                          onTap: () {
-                            Navigator.of(context).push(MaterialPageRoute(
-                              builder: (context) => AIScriptGeneratorScreen(apiKey: GEMINI_API_KEY),
-                            ));
-                          },
-                        ),
+                        // TODO: AI Script Generator - Feature temporarily disabled
+                        // _GlowButton(
+                        //   label: 'Generate Script',
+                        //   colors: const [Color(0xFF8B5CF6), Color(0xFF6366F1)],
+                        //   onTap: () {
+                        //     Navigator.of(context).push(MaterialPageRoute(
+                        //       builder: (context) => AIScriptGeneratorScreen(apiKey: GEMINI_API_KEY),
+                        //     ));
+                        //   },
+                        // ),
                       ],
                     ),
                   ),
@@ -542,9 +541,10 @@ class _FeatureCardState extends State<_FeatureCard>
         _up();
         // Navigate to AI Script Generator when this feature is tapped
         if (f.title.contains('AI Script')) {
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => AIScriptGeneratorScreen(apiKey: GEMINI_API_KEY),
-          ));
+          // TODO: AI Script Generator - Feature temporarily disabled
+          // Navigator.of(context).push(MaterialPageRoute(
+          //   builder: (_) => AIScriptGeneratorScreen(apiKey: GEMINI_API_KEY),
+          // ));
           return;
         }
       },

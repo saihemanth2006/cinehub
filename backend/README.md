@@ -7,14 +7,14 @@ Setup
 1. Copy `.env.example` to `.env` and set your credentials and phone number:
 
 ```
-TWILIO_ACCOUNT_SID=[REDACTED]
-TWILIO_AUTH_TOKEN=[REDACTED]
+TWILIO_ACCOUNT_SID=your_account_sid_here
+TWILIO_AUTH_TOKEN=your_auth_token_here
 TWILIO_PHONE_NUMBER=+1YOURTWILIONUMBER
 PORT=4000
 OTP_TTL_SECONDS=300
 ```
 
-Note: For security do NOT commit `.env` with real credentials.
+Note: For security do NOT commit `.env` with real credentials. The `.env` file is gitignored for your protection.
 
 2. Install dependencies:
 

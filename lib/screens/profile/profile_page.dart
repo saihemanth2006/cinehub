@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import '../../services/auth_service.dart';
+import '../auth/login_screen.dart';
 import '../notifications/notifications_page.dart';
 
 // ─── Data models ────────────────────────────────────────────────────────────
@@ -47,14 +50,21 @@ class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
   bool _aboutExpanded = false;
+  int _followersCount = 0;
+  int _followingCount = 0;
+  Timer? _statsTimer;
 
-  // ── Data ────────────────────────────────────────────────────────────
-  final String _aboutFull =
+    // ── Data ────────────────────────────────────────────────────────────
+    String _aboutFull =
       'Award-winning director with 10+ years in independent Indian cinema. '
       'Known for visually rich storytelling and morally complex characters. '
       'My work spans drama, documentary, and experimental formats. Passionate '
       'about collaborating with emerging talent and pushing the boundaries of '
       'Indian independent cinema.';
+
+    String _displayName = 'Vikram Nair';
+    String _displayRole = 'Director & Screenwriter';
+    String _displayLocation = 'Mumbai';
 
   final List<String> _skills = [
     'Direction',
@@ -148,11 +158,60 @@ class _ProfilePageState extends State<ProfilePage>
   void initState() {
     super.initState();
     _tab = TabController(length: 3, vsync: this);
+    _loadProfileFromBackend();
+    // refresh follower/following counts periodically for near-realtime updates
+    _statsTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refreshStats());
+  }
+
+  Future<void> _loadProfileFromBackend() async {
+    try {
+      // attempt to read cached user first
+      final auth = AuthService();
+      if (auth.user != null) {
+        setState(() {
+          _displayName = auth.user?['fullName'] ?? _displayName;
+          _displayRole = auth.user?['role'] ?? _displayRole;
+          _displayLocation = auth.user?['location'] ?? auth.user?['city'] ?? _displayLocation;
+          _aboutFull = auth.user?['bio'] ?? _aboutFull;
+        });
+          // even when we have cached user info, refresh follower/following counts
+          await _refreshStats();
+          return;
+      }
+      // try fetching /me if token exists
+      final me = await auth.fetchMe();
+      if (me != null) {
+        if (!mounted) return;
+        setState(() {
+          _displayName = me['fullName'] ?? _displayName;
+          _displayRole = me['role'] ?? _displayRole;
+          _displayLocation = me['location'] ?? me['city'] ?? _displayLocation;
+          _aboutFull = me['bio'] ?? _aboutFull;
+        });
+        // load followers/following counts
+        await _refreshStats();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _refreshStats() async {
+    try {
+      final auth = AuthService();
+      final myId = auth.user != null ? auth.user!['_id']?.toString() : null;
+      if (myId == null) return;
+      final stats = await auth.fetchUserStats(myId);
+      if (!mounted || stats == null) return;
+      setState(() {
+        _followersCount = stats['followers'] ?? _followersCount;
+        _followingCount = stats['following'] ?? _followingCount;
+      });
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _tab.dispose();
+    _statsTimer?.cancel();
     super.dispose();
   }
 
@@ -578,26 +637,26 @@ class _ProfilePageState extends State<ProfilePage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(children: [
-                            const Text('Vikram Nair',
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800)),
+                            Row(children: [
+                            Text(_displayName,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800)),
                             const SizedBox(width: 6),
                             const Icon(Icons.verified_rounded,
-                                size: 16, color: _orange1),
-                          ]),
+                              size: 16, color: _orange1),
+                            ]),
                           const SizedBox(height: 3),
-                          Text('Director & Screenwriter',
+                            Text(_displayRole,
                               style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.white
-                                      .withOpacity(0.6))),
+                                fontSize: 13,
+                                color: Colors.white
+                                  .withOpacity(0.6))),
                           const SizedBox(height: 8),
                           Row(children: [
                             _miniChip(Icons.location_on_rounded,
-                                'Mumbai',
-                                color: Colors.white24),
+                              _displayLocation,
+                              color: Colors.white24),
                             const SizedBox(width: 8),
                             _miniChip(Icons.workspace_premium_rounded,
                                 'Pro',
@@ -621,9 +680,15 @@ class _ProfilePageState extends State<ProfilePage>
                     children: [
                       _statCol('4', 'Projects'),
                       _vertLine(),
-                      _statCol('4.9★', 'Rating'),
+                      GestureDetector(
+                        onTap: () => _showFollowersPage(context),
+                        child: _statCol(_followersCount.toString(), 'Followers'),
+                      ),
                       _vertLine(),
-                      _statCol('1.2K', 'Followers'),
+                      GestureDetector(
+                        onTap: () => _showFollowersPage(context, openFollowing: true),
+                        child: _statCol(_followingCount.toString(), 'Following'),
+                      ),
                       _vertLine(),
                       _statCol('10+', 'Years'),
                     ],
@@ -857,6 +922,118 @@ class _ProfilePageState extends State<ProfilePage>
       duration: const Duration(seconds: 3),
     ));
   }
+
+  void _showFollowersPage(BuildContext context, {bool openFollowing = false}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => FollowersPage(openFollowing: openFollowing)),
+    ).then((_) {
+      // refresh counts after returning from followers/following actions
+      _refreshStats();
+    });
+  }
+}
+
+
+// ──────────────────────────────────────────────────────────────────────────
+// Followers / Following Page
+// ──────────────────────────────────────────────────────────────────────────
+class FollowersPage extends StatefulWidget {
+  final bool openFollowing;
+  const FollowersPage({super.key, this.openFollowing = false});
+
+  @override
+  State<FollowersPage> createState() => _FollowersPageState();
+}
+
+class _FollowersPageState extends State<FollowersPage> with SingleTickerProviderStateMixin {
+  late TabController _tab;
+  List<Map<String, dynamic>> _followers = [];
+  List<Map<String, dynamic>> _following = [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 2, vsync: this);
+    if (widget.openFollowing) _tab.index = 1;
+    _loadLists();
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadLists() async {
+    setState(() => _loading = true);
+    try {
+      final auth = AuthService();
+      final myId = auth.user != null ? auth.user!['_id']?.toString() : null;
+      if (myId == null) return;
+      final f = await auth.fetchFollowers(myId);
+      final g = await auth.fetchFollowing(myId);
+      if (!mounted) return;
+      setState(() {
+        _followers = f;
+        _following = g;
+      });
+    } catch (_) {}
+    setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Followers'),
+        bottom: TabBar(
+          controller: _tab,
+          tabs: const [Tab(text: 'Followers'), Tab(text: 'Following')],
+        ),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tab,
+              children: [
+                _buildList(_followers),
+                _buildList(_following),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildList(List<Map<String, dynamic>> items) {
+    if (items.isEmpty) return const Center(child: Text('No results'));
+    return ListView.separated(
+      itemCount: items.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, i) {
+        final it = items[i];
+        return ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.person_rounded)),
+          title: Text(it['fullName'] ?? it['name'] ?? 'User'),
+          subtitle: Text('@${it['username'] ?? ''}'),
+          trailing: ElevatedButton(
+            onPressed: () async {
+              // allow follow/unfollow back
+              final auth = AuthService();
+              final me = auth.user;
+              if (me == null) return;
+              final isFollowing = _following.any((f) => (f['_id']?.toString() ?? '') == (it['_id']?.toString() ?? ''));
+              bool ok = false;
+              if (isFollowing) ok = await auth.unfollow(it['_id']?.toString() ?? '');
+              else ok = await auth.follow(it['_id']?.toString() ?? '');
+              if (ok) await _loadLists();
+            },
+            child: Text(_following.any((f) => (f['_id']?.toString() ?? '') == (it['_id']?.toString() ?? '')) ? 'Unfollow' : 'Follow'),
+          ),
+        );
+      },
+    );
+  }
 }
 
 // ─── Edit Profile Sheet ──────────────────────────────────────────────────────
@@ -869,13 +1046,23 @@ class _EditProfileSheet extends StatefulWidget {
 }
 
 class _EditProfileSheetState extends State<_EditProfileSheet> {
-  final _nameCtrl = TextEditingController(text: 'Vikram Nair');
-  final _roleCtrl =
-      TextEditingController(text: 'Director & Screenwriter');
-  final _bioCtrl = TextEditingController(
-      text:
-          'Award-winning director with 10+ years in independent Indian cinema.');
-  final _locationCtrl = TextEditingController(text: 'Mumbai');
+  final _nameCtrl = TextEditingController();
+  final _roleCtrl = TextEditingController();
+  final _bioCtrl = TextEditingController();
+  final _locationCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final auth = AuthService();
+    final u = auth.user;
+    if (u != null) {
+      _nameCtrl.text = u['fullName'] ?? '';
+      _roleCtrl.text = u['role'] ?? '';
+      _bioCtrl.text = u['bio'] ?? '';
+      _locationCtrl.text = u['location'] ?? u['city'] ?? '';
+    }
+  }
 
   @override
   void dispose() {
@@ -1039,12 +1226,20 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               (v) => setState(() => _availableForWork = v)),
           const SizedBox(height: 20),
           GestureDetector(
-            onTap: () {
+            onTap: () async {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('Logged out'),
+              final auth = AuthService();
+              final success = await auth.logout();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(success ? 'Logged out' : 'Logged out (offline)'),
                 behavior: SnackBarBehavior.floating,
               ));
+              // Navigate to login screen and clear navigation stack
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
             },
             child: Container(
               width: double.infinity,

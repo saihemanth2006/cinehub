@@ -7,4 +7,4 @@ export 'script_generator_service.dart';
 export 'film_cost_predictor_service.dart';
 export 'screens/ai_script_generator_screen.dart';
 export 'screens/film_cost_predictor_screen.dart';
-export 'trailer_generator/trailer_generator.dart';
+//export 'trailer_generator/trailer_generator.dart';

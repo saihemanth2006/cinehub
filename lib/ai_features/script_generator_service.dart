@@ -17,6 +17,10 @@ class ScriptGeneratorService {
     ScriptGenerationRequest request,
   ) async {
     try {
+      if (_apiKey.isEmpty) {
+        throw Exception('Gemini API key is not configured. Please provide a valid API key.');
+      }
+
       final prompt = _buildPrompt(request);
       
       final response = await http.post(

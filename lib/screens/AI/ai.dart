@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../../ai_features/screens/ai_script_generator_screen.dart';
+import 'package:cinehubapp/ai_features/api_key.dart';
+import '../../widgets/animated_gradient_border.dart';
 
 // ─────────────────────────────────────────────
 //  DATA MODEL
@@ -185,11 +188,11 @@ class _AIPageState extends State<AIPage> with TickerProviderStateMixin {
                         colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
                       ).createShader(r),
                       child: const Text('CineStudio',
-                          style: TextStyle(
+                            style: TextStyle(
                               color: Colors.white,
                               fontSize: 21,
                               fontWeight: FontWeight.w900,
-                              letterSpacing: 0.8)),
+                              letterSpacing: 0.0)),
                     ),
                     const Spacer(),
                     _IconChip(icon: Icons.notifications_none_rounded),
@@ -211,13 +214,13 @@ class _AIPageState extends State<AIPage> with TickerProviderStateMixin {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ).createShader(r),
-                  child: const Text('Action! 🎬',
+                    child: const Text('Action! 🎬',
                       style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 38,
-                          fontWeight: FontWeight.w900,
-                          height: 1.1,
-                          letterSpacing: -0.5)),
+                        color: Colors.white,
+                        fontSize: 38,
+                        fontWeight: FontWeight.w900,
+                        height: 1.1,
+                        letterSpacing: 0.0)),
                 ),
                 const SizedBox(height: 6),
                 const Text('Your complete filmmaking platform',
@@ -352,7 +355,7 @@ class _AIPageState extends State<AIPage> with TickerProviderStateMixin {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _TagChip(label: '✨  AI Script Generator', color: const Color(0xFF8B5CF6)),
+                        _TagChip(label: '✨ AI Script Generator', color: const Color(0xFF8B5CF6)),
                         const SizedBox(height: 8),
                         const Text('Write your next\nblockbuster screenplay',
                             style: TextStyle(
@@ -364,7 +367,11 @@ class _AIPageState extends State<AIPage> with TickerProviderStateMixin {
                         _GlowButton(
                           label: 'Generate Script',
                           colors: const [Color(0xFF8B5CF6), Color(0xFF6366F1)],
-                          onTap: () {},
+                          onTap: () {
+                            Navigator.of(context).push(MaterialPageRoute(
+                              builder: (context) => AIScriptGeneratorScreen(apiKey: GEMINI_API_KEY),
+                            ));
+                          },
                         ),
                       ],
                     ),
@@ -384,12 +391,12 @@ class _AIPageState extends State<AIPage> with TickerProviderStateMixin {
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 4),
       child: Row(
         children: [
-          Text(title,
-              style: const TextStyle(
+            Text(title,
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 0.2)),
+                  letterSpacing: 0.0)),
           const SizedBox(width: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -531,6 +538,16 @@ class _FeatureCardState extends State<_FeatureCard>
       onTapDown: _down,
       onTapUp: (_) => _up(),
       onTapCancel: _up,
+      onTap: () {
+        _up();
+        // Navigate to AI Script Generator when this feature is tapped
+        if (f.title.contains('AI Script')) {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => AIScriptGeneratorScreen(apiKey: GEMINI_API_KEY),
+          ));
+          return;
+        }
+      },
       child: AnimatedBuilder(
         animation: _tap,
         builder: (_, child) => Transform.scale(
@@ -586,10 +603,9 @@ class _FeatureCardState extends State<_FeatureCard>
                   ),
                   child: Text(f.tag,
                       style: TextStyle(
-                          color: f.gradient.first,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3)),
+                        color: f.gradient.first,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700)),
                 ),
                 const SizedBox(height: 6),
                 Text(f.title,
@@ -610,7 +626,7 @@ class _FeatureCardState extends State<_FeatureCard>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Open  →',
+                    Text('Open →',
                         style: TextStyle(
                             color: f.gradient.first.withOpacity(0.8),
                             fontSize: 12,
@@ -720,34 +736,47 @@ class _IconChip extends StatelessWidget {
       );
 }
 
-class _SearchBar extends StatelessWidget {
+class _SearchBar extends StatefulWidget {
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: BoxDecoration(
-          color: const Color(0xFF111118),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.search_rounded, color: Colors.white30, size: 18),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text('Search projects, scripts, gear...',
-                  style: TextStyle(color: Color(0x47FFFFFF), fontSize: 13.5)),
+  State<_SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends State<_SearchBar> {
+  bool _isActive = false;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => setState(() => _isActive = !_isActive),
+        child: AnimatedGradientBorder(
+          isActive: _isActive,
+          backgroundColor: const Color(0xFF111118),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(50),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8B5CF6).withOpacity(0.2),
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: const Text('⌘ K',
-                  style: TextStyle(
-                      color: Color(0xFF8B5CF6), fontSize: 11, fontWeight: FontWeight.w700)),
+            child: Row(
+              children: [
+                const Icon(Icons.search_rounded, color: Colors.white30, size: 18),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('Search projects, scripts, gear...',
+                      style: TextStyle(color: Color(0x47FFFFFF), fontSize: 13.5)),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8B5CF6).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: const Text('⌘ K',
+                      style: TextStyle(
+                          color: Color(0xFF8B5CF6), fontSize: 11, fontWeight: FontWeight.w700)),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
 }

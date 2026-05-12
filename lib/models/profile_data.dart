@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 class ProfileData {
+  final String id;
   final String name;
   final String role;
   final String type;
@@ -17,6 +18,7 @@ class ProfileData {
   final String availability;
 
   const ProfileData({
+    this.id = '',
     required this.name,
     required this.role,
     required this.type,

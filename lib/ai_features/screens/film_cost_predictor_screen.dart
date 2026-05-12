@@ -19,7 +19,7 @@ class _FilmCostPredictorScreenState extends State<FilmCostPredictorScreen> {
   late FilmCostPredictorService _service;
   
   EquipmentLevel _selectedEquipmentLevel = EquipmentLevel.professional;
-  
+         
   final TextEditingController _scriptController = TextEditingController();
   final TextEditingController _actorsController = TextEditingController();
   final TextEditingController _locationsController = TextEditingController();

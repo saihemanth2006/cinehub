@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import '../../core/network/base_api_service.dart';
 import 'dart:convert';
+import '../../services/auth_service.dart';
 
 import '../main_screen.dart';
+
+// Normalize string: collapse multiple consecutive spaces to single space
+String normalizeString(String s, {bool preserveNewlines = false}) {
+  if (s.isEmpty) return s;
+  if (preserveNewlines) {
+    return s.split('\n').map((line) => line.replaceAll(RegExp(r'[ \t]+'), ' ')).join('\n');
+  }
+  return s.replaceAll(RegExp(r'[ \t\n]+'), ' ').trim();
+}
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback? onLoggedIn;
@@ -28,12 +38,12 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     setState(() => _loading = true);
     try {
-      final uri = Uri.parse('http://localhost:4000/login');
-      final resp = await http.post(uri,
-          headers: {'Content-Type': 'application/json'}, body: jsonEncode({'identifier': id, 'password': pwd}));
+      final resp = await BaseApiService.post('/login', body: {'identifier': id, 'password': pwd});
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
         if (body is Map && body['ok'] == true) {
+          // save token + user in AuthService
+          AuthService().setFromLogin(body);
           // Call callback or navigate to main screen
           if (!mounted) return;
           if (widget.onLoggedIn != null) {
@@ -81,19 +91,19 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 8),
               IconButton(onPressed: () => Navigator.of(context).maybePop(), icon: const Icon(Icons.arrow_back)),
               const SizedBox(height: 8),
-              const Text('Welcome Back', style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold)),
+              Text('Welcome Back', style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold, letterSpacing: 1.0, wordSpacing: -1.0)),
               const SizedBox(height: 8),
-              const Text('Sign in to continue', style: TextStyle(color: Colors.grey)),
+              Text('Sign in to continue', style: const TextStyle(color: Colors.grey, letterSpacing: 1.0, wordSpacing: -1.0)),
               const SizedBox(height: 24),
-              TextField(controller: _identifierCtl, decoration: const InputDecoration(labelText: 'Email / Username / Phone', prefixIcon: Icon(Icons.person))),
+              TextField(controller: _identifierCtl, decoration: InputDecoration(labelText: 'Email / Username / Phone', prefixIcon: const Icon(Icons.person))),
               const SizedBox(height: 12),
-              TextField(controller: _passwordCtl, obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock))),
+              TextField(controller: _passwordCtl, obscureText: true, decoration: InputDecoration(labelText: 'Password', prefixIcon: const Icon(Icons.lock))),
               const SizedBox(height: 12),
               Row(children: [Checkbox(value: false, onChanged: (_) {}), const Text('Remember me')]),
               const SizedBox(height: 12),
-              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _loading ? null : _tryLogin, child: _loading ? const CircularProgressIndicator() : const Text('Log In'))),
+              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _loading ? null : _tryLogin, child: _loading ? const CircularProgressIndicator() : const Text('Log In', style: TextStyle(letterSpacing: 1.0, wordSpacing: -1.0)))),
               const SizedBox(height: 16),
-              Center(child: TextButton(onPressed: _openSignup, child: const Text("Don't have an account? Sign Up"))),
+              Center(child: TextButton(onPressed: _openSignup, child: const Text("Don't have an account? Sign Up", style: TextStyle(letterSpacing: 1.0, wordSpacing: -1.0)))),
             ],
           ),
         ),
@@ -128,10 +138,11 @@ class _SignupScreenState extends State<SignupScreen> {
     if (phone.isEmpty) return;
     setState(() => _sending = true);
     try {
-      final uri = Uri.parse('http://localhost:4000/send-otp');
-      final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({'phone': phone}));
-      if (resp.statusCode == 200) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('OTP sent')));
-      else ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to send OTP')));
+      final resp = await BaseApiService.post('/send-otp', body: {'phone': phone});
+      if (resp.statusCode == 200)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('OTP sent')));
+      else
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to send OTP')));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
@@ -145,8 +156,7 @@ class _SignupScreenState extends State<SignupScreen> {
     if (phone.isEmpty || code.isEmpty) return;
     setState(() => _verifying = true);
     try {
-      final uri = Uri.parse('http://localhost:4000/verify-otp');
-      final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({'phone': phone, 'otp': code}));
+      final resp = await BaseApiService.post('/verify-otp', body: {'phone': phone, 'otp': code});
       if (resp.statusCode == 200) {
         final body = jsonDecode(resp.body);
         if (body is Map && body['ok'] == true) {
@@ -168,7 +178,6 @@ class _SignupScreenState extends State<SignupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please verify phone first')));
       return;
     }
-    final uri = Uri.parse('http://localhost:4000/register');
     final body = jsonEncode({
       'fullName': _fullName.text.trim(),
       'email': _email.text.trim(),
@@ -177,11 +186,23 @@ class _SignupScreenState extends State<SignupScreen> {
       'otp': _otp.text.trim(),
     });
     try {
-      final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: body);
+      final resp = await BaseApiService.post('/register', body: jsonDecode(body));
       if (resp.statusCode == 200) {
         final parsed = jsonDecode(resp.body);
         if (parsed is Map && parsed['ok'] == true) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created')));
+          // try to auto-login so we get a token and user stored
+          try {
+            final lid = _phone.text.trim();
+            final lpwd = _password.text;
+            final lresp = await BaseApiService.post('/login', body: {'identifier': lid, 'password': lpwd});
+            if (lresp.statusCode == 200) {
+              final lbody = jsonDecode(lresp.body);
+              if (lbody is Map && lbody['ok'] == true) {
+                AuthService().setFromLogin(lbody);
+              }
+            }
+          } catch (_) {}
           if (!mounted) return;
           if (widget.onSignedUp != null) {
             widget.onSignedUp!(context);

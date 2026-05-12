@@ -2,7 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math';
 import 'dart:async';
+import '../../widgets/animated_gradient_border.dart';
 import '../../models/models.dart';
+import '../../services/auth_service.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:video_player/video_player.dart';
+import 'package:http/http.dart' as http;
+import '../../core/config/app_config.dart';
+import 'dart:convert';
+
+// Normalize whitespace in UI strings. Use `preserveNewlines=true` when
+// you want to keep paragraph breaks but collapse extra spaces/tabs.
+String normalizeString(String s, {bool preserveNewlines = false}) {
+  if (s.isEmpty) return s;
+  if (preserveNewlines) {
+    return s.replaceAll(RegExp(r'[ \t]{2,}'), ' ').trim();
+  }
+  return s.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
 
 // ─────────────────────────────────────────────────────────────
 //  DESIGN TOKENS
@@ -35,7 +52,9 @@ class _Featured {
 
 class _Post {
   final String name, handle, ago, body;
-  final String? imageLabel;
+  final String? id;
+  final String? authorId;
+  final List<String> media;
   final Color avatarColor;
   final bool verified, filmmaker;
   final String? genre;
@@ -49,7 +68,7 @@ class _Post {
     required this.handle,
     required this.ago,
     required this.body,
-    this.imageLabel,
+    this.media = const [],
     required this.avatarColor,
     this.verified = false,
     this.filmmaker = false,
@@ -59,6 +78,8 @@ class _Post {
     required this.comments,
     required this.shares,
     required this.views,
+    this.id,
+    this.authorId,
     this.liked = false,
     this.bookmarked = false,
     this.following = false,
@@ -107,6 +128,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final _scrollCtrl = ScrollController();
   late List<_Post> _posts;
   bool _loadingMore = false;
+  int _feedPage = 1;
+  bool _hasMoreFeed = true;
+  bool _initialLoading = true;
+  String? _feedError;
 
   // Animations
   late AnimationController _shimmer, _pulse;
@@ -134,7 +159,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _pulse = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1800))
       ..repeat(reverse: true);
-    _posts = _buildPosts();
+    _posts = [];
+    _fetchFeedInitial();
     _scrollCtrl.addListener(_onScroll);
     _startAutoScroll();
   }
@@ -168,20 +194,96 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _loadMore() async {
+    if (!_hasMoreFeed) return;
     setState(() => _loadingMore = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (mounted) {
-      setState(() {
-        _posts.addAll(_buildPosts(seed: _posts.length));
-        _loadingMore = false;
-      });
-    }
+    _feedPage += 1;
+    final newPosts = await _fetchFeed(page: _feedPage);
+    if (!mounted) return;
+    setState(() {
+      _posts.addAll(newPosts);
+      _loadingMore = false;
+      if (newPosts.isEmpty) _hasMoreFeed = false;
+    });
   }
 
   Future<void> _onRefresh() async {
     HapticFeedback.mediumImpact();
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted) setState(() => _posts = _buildPosts());
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+    _feedPage = 1;
+    _hasMoreFeed = true;
+    final fresh = await _fetchFeed(page: 1);
+    if (!mounted) return;
+    setState(() => _posts = fresh);
+  }
+
+  Future<void> _fetchFeedInitial() async {
+    setState(() {
+      _initialLoading = true;
+      _feedError = null;
+    });
+    try {
+      final list = await _fetchFeed(page: 1);
+      if (!mounted) return;
+      setState(() {
+        _posts = list;
+        _feedPage = 1;
+        _hasMoreFeed = list.length >= 20;
+        _initialLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _initialLoading = false;
+        _feedError = e.toString();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load feed: $e')));
+    }
+  }
+
+  Future<List<_Post>> _fetchFeed({int page = 1, int limit = 20}) async {
+    try {
+      final svc = AuthService();
+      final raw = await svc.fetchFeed(page: page, limit: limit);
+      final meId = svc.user != null ? svc.user!['_id']?.toString() : null;
+      final mapped = <_Post>[];
+      for (final p in raw) {
+        final author = p['author'] is Map ? Map<String, dynamic>.from(p['author']) : <String, dynamic>{};
+        final authorId = author['_id']?.toString();
+        if (meId != null && authorId == meId) continue; // skip current user's posts
+        final name = normalizeString(author['fullName'] ?? author['name'] ?? 'Unknown');
+        final username = normalizeString(author['username'] ?? (authorId != null ? authorId.substring(0, 6) : 'user'));
+        final content = normalizeString(p['content'] ?? '', preserveNewlines: true);
+        final media = p['media'];
+        final mediaUrls = media is List ? List<String>.from(media) : <String>[];
+        final likes = (p['likesCount'] ?? p['likes'] ?? 0) as int;
+        final comments = (p['commentsCount'] ?? 0) as int;
+        final genre = normalizeString(p['genre'] as String? ?? '');
+        final liked = (p['liked'] ?? false) as bool;
+        final following = (author['isFollowed'] ?? false) as bool;
+        mapped.add(_Post(
+          name: name,
+          handle: '@$username',
+          ago: 'just now',
+          body: content,
+          media: mediaUrls,
+          avatarColor: const Color(0xFF7C3AED),
+          verified: false,
+          filmmaker: false,
+          genre: genre,
+          tags: const [],
+          likes: likes,
+          comments: comments,
+          shares: 0,
+          views: 0,
+          id: p['_id']?.toString(),
+          authorId: authorId,
+        )..liked = liked..following = following);
+      }
+      return mapped;
+    } catch (e) {
+      rethrow;
+    }
   }
 
   List<_Post> _buildPosts({int seed = 0}) {
@@ -268,12 +370,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     ];
     return List.generate(data.length, (i) {
       final d = data[(i + seed ~/ data.length) % data.length];
-      return _Post(
+        return _Post(
         name: d.name,
         handle: d.handle,
         ago: '${rng.nextInt(22) + 1}h',
         body: d.body,
-        imageLabel: d.img,
+        media: d.img != null ? ['https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=600&auto=format&fit=crop'] : [],
         avatarColor: d.color,
         verified: d.v,
         filmmaker: d.f,
@@ -283,6 +385,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         comments: rng.nextInt(980) + 40,
         shares: rng.nextInt(490) + 20,
         views: d.views + rng.nextInt(5000),
+          id: null,
+          authorId: null,
       );
     });
   }
@@ -355,36 +459,79 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
                         // Instagram-style posts (hidden when searching)
                         if (_query.isEmpty)
-                          SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (_, i) {
-                                if (i >= _posts.length) {
-                                  return _loadingMore
-                                      ? _buildShimmerPost()
-                                      : const SizedBox(height: 80);
-                                }
-                                final p = _posts[i];
-                                return _InstagramPost(
-                                  key: ValueKey('post_$i'),
-                                  post: p,
-                                  index: i,
-                                  onLike: () => setState(() {
-                                    p.liked = !p.liked;
-                                    p.likes += p.liked ? 1 : -1;
-                                    HapticFeedback.lightImpact();
-                                  }),
-                                  onBookmark: () {
-                                    setState(
-                                        () => p.bookmarked = !p.bookmarked);
-                                    HapticFeedback.selectionClick();
-                                  },
-                                  onFollow: () => setState(
-                                      () => p.following = !p.following),
-                                );
-                              },
-                              childCount: _posts.length + 1,
+                          if (_initialLoading && _posts.isEmpty)
+                            const SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else if (_feedError != null && _posts.isEmpty)
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text('Failed to load feed', style: TextStyle(color: Colors.white60)),
+                                    const SizedBox(height: 8),
+                                    ElevatedButton(onPressed: _fetchFeedInitial, child: const Text('Retry')),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (_, i) {
+                                  if (i >= _posts.length) {
+                                    return _loadingMore ? _buildShimmerPost() : const SizedBox(height: 80);
+                                  }
+                                  final p = _posts[i];
+                                  return _InstagramPost(
+                                    key: ValueKey('post_$i'),
+                                    post: p,
+                                    index: i,
+                                    onLike: () async {
+                                      setState(() {
+                                        p.liked = !p.liked;
+                                        p.likes += p.liked ? 1 : -1;
+                                      });
+                                      HapticFeedback.lightImpact();
+                                      try {
+                                        if (p.id == null) return;
+                                        final auth = AuthService();
+                                        final success = p.liked ? await auth.likePost(p.id!) : await auth.unlikePost(p.id!);
+                                        if (!success && mounted) {
+                                          setState(() {
+                                            p.liked = !p.liked;
+                                            p.likes += p.liked ? 1 : -1;
+                                          });
+                                        }
+                                      } catch (e) {
+                                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Action failed: $e')));
+                                      }
+                                    },
+                                    onBookmark: () {
+                                      setState(() => p.bookmarked = !p.bookmarked);
+                                      HapticFeedback.selectionClick();
+                                    },
+                                    onFollow: () async {
+                                      setState(() => p.following = !p.following);
+                                      try {
+                                        if (p.authorId == null) return;
+                                        final auth = AuthService();
+                                        final success = p.following ? await auth.follow(p.authorId!) : await auth.unfollow(p.authorId!);
+                                        if (!success && mounted) {
+                                          setState(() => p.following = !p.following);
+                                        }
+                                      } catch (e) {
+                                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Action failed: $e')));
+                                      }
+                                    },
+                                  );
+                                },
+                                childCount: _posts.length + (_hasMoreFeed ? 1 : 0),
+                              ),
                             ),
-                          ),
                       ],
                     ),
                   ),
@@ -403,32 +550,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   Positioned(
                     top: 8,
                     right: 20,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 400),
-                      curve: Curves.fastOutSlowIn,
-                      width: _searchExpanded ? sw - 40 : 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: _C.card,
-                        borderRadius: BorderRadius.circular(
-                            _searchExpanded ? 20 : 26),
-                        border: Border.all(
+                    child: AnimatedGradientBorder(
+                      isActive: _searchExpanded,
+                      backgroundColor: _C.card,
+                      boxShadow: [
+                        BoxShadow(
                           color: _searchExpanded
-                              ? _C.accent.withOpacity(0.45)
-                              : _C.cardBorder,
-                          width: _searchExpanded ? 1.0 : 0.8,
+                              ? _C.accent.withOpacity(0.12)
+                              : Colors.black.withOpacity(0.4),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _searchExpanded
-                                ? _C.accent.withOpacity(0.12)
-                                : Colors.black.withOpacity(0.4),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      clipBehavior: Clip.hardEdge,
+                      ],
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.fastOutSlowIn,
+                        width: _searchExpanded ? sw - 40 : 52,
+                        height: 52,
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 250),
                         child: _searchExpanded
@@ -437,6 +575,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
+                ),
                 ],
               ),
             ),
@@ -612,7 +751,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   color: Colors.white,
                   fontSize: 26,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: -1.2),
+                  letterSpacing: 0.0),
             ),
           ),
 
@@ -639,12 +778,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // ── Create Post bottom sheet ────────────────────────────────
   //  Replace this with a full-screen PostPage push if you prefer.
   void _showCreatePostSheet(BuildContext context) {
-    showModalBottomSheet(
+    // await result from sheet; newly created post will be returned and inserted into feed
+    showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _CreatePostSheet(),
-    );
+    ).then((created) {
+      if (created != null && mounted) {
+        // Map created post (backend shape) into local _Post model where possible
+        setState(() {
+          _posts.insert(0, _Post(
+            name: created['author']?['fullName'] ?? 'You',
+            handle: '@' + (created['author']?['username'] ?? 'me'),
+            ago: 'just now',
+            body: created['content'] ?? '',
+            media: created['media'] != null ? List<String>.from(created['media']) : [],
+            avatarColor: const Color(0xFF7C3AED),
+            verified: false,
+            filmmaker: false,
+            genre: created['genre'],
+            tags: const [],
+            likes: created['likesCount'] ?? 0,
+            comments: created['commentsCount'] ?? 0,
+            shares: 0,
+            views: 0,
+            id: created['_id']?.toString(),
+            authorId: created['author']?['_id']?.toString(),
+          ));
+        });
+      }
+    });
   }
 
   // ── Category chips ───────────────────────────────────────────
@@ -695,7 +859,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  // ── Flipkart-style carousel ──────────────────────────────────
+                                
   Widget _buildCarousel() {
     return Column(
       children: [
@@ -755,8 +919,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ),
         const SizedBox(width: 10),
-        const Text('Latest in Film',
-            style: TextStyle(
+        Text(normalizeString('Latest in Film'),
+            style: const TextStyle(
                 color: _C.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w700)),
@@ -859,7 +1023,10 @@ class _CreatePostSheet extends StatefulWidget {
 class _CreatePostSheetState extends State<_CreatePostSheet> {
   final _ctrl = TextEditingController();
   String _selectedGenre = 'Drama';
-  bool _addMedia = false;
+  bool _isUploading = false;
+  PlatformFile? _pickedMedia;
+  VideoPlayerController? _videoController;
+  String? _uploadedUrl;
 
   static const _genres = [
     'Drama', 'Thriller', 'Documentary', 'Sci-Fi',
@@ -869,7 +1036,76 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
   @override
   void dispose() {
     _ctrl.dispose();
+    _videoController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickMedia() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.media,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        setState(() {
+          _pickedMedia = file;
+        });
+
+        if (file.extension?.toLowerCase() == 'mp4' || file.extension?.toLowerCase() == 'mov') {
+          // Note: for web, video player can play from a blob url created from bytes
+          // But uploading it first and playing the network URL is more reliable, so we will do that later or we can play from blob if we construct it.
+          // Actually, let's just upload it immediately.
+          await _uploadFile(file);
+        } else {
+          await _uploadFile(file);
+        }
+      }
+    } catch (e) {
+      debugPrint("Pick error: $e");
+    }
+  }
+
+  Future<void> _uploadFile(PlatformFile file) async {
+    setState(() => _isUploading = true);
+    try {
+      final token = AuthService().token;
+      var request = http.MultipartRequest('POST', Uri.parse('${AppConfig.apiBaseUrl}/api/upload'));
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
+      
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'media',
+          file.bytes!,
+          filename: file.name,
+        ),
+      );
+
+      var res = await request.send();
+      if (res.statusCode == 200) {
+        var resBody = await res.stream.bytesToString();
+        var json = jsonDecode(resBody);
+        if (json['ok'] && json['url'] != null) {
+          setState(() {
+            _uploadedUrl = '${AppConfig.apiBaseUrl}${json['url']}';
+          });
+          if (file.extension?.toLowerCase() == 'mp4' || file.extension?.toLowerCase() == 'mov') {
+            _videoController = VideoPlayerController.networkUrl(Uri.parse(_uploadedUrl!))
+              ..initialize().then((_) {
+                setState(() {});
+                _videoController!.setVolume(1.0);
+                _videoController!.play();
+                _videoController!.setLooping(true);
+              });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Upload error: $e");
+    } finally {
+      setState(() => _isUploading = false);
+    }
   }
 
   @override
@@ -1020,16 +1256,16 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
 
                   // Add media row
                   GestureDetector(
-                    onTap: () => setState(() => _addMedia = !_addMedia),
+                    onTap: _pickMedia,
                     child: Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: _addMedia
+                        color: _pickedMedia != null
                             ? _C.accent.withOpacity(0.08)
                             : const Color(0xFF111120),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: _addMedia
+                          color: _pickedMedia != null
                               ? _C.accent.withOpacity(0.4)
                               : const Color(0xFF1A1A2E),
                           width: 0.8,
@@ -1037,40 +1273,85 @@ class _CreatePostSheetState extends State<_CreatePostSheet> {
                       ),
                       child: Row(children: [
                         Icon(
-                          _addMedia
+                          _pickedMedia != null
                               ? Icons.photo_rounded
                               : Icons.add_photo_alternate_outlined,
                           color:
-                              _addMedia ? _C.accentSoft : _C.textSec,
+                              _pickedMedia != null ? _C.accentSoft : _C.textSec,
                           size: 20,
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          _addMedia
-                              ? 'Media attached'
+                          _pickedMedia != null
+                              ? 'Media attached (${_pickedMedia!.name})'
                               : 'Add photo / video',
                           style: TextStyle(
-                              color: _addMedia
+                              color: _pickedMedia != null
                                   ? _C.accentSoft
                                   : _C.textSec,
                               fontSize: 13,
                               fontWeight: FontWeight.w600),
                         ),
                         const Spacer(),
-                        if (_addMedia)
-                          const Icon(Icons.check_circle_rounded,
-                              color: _C.accent, size: 18),
+                        if (_isUploading)
+                          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: _C.accent))
+                        else if (_uploadedUrl != null)
+                          const Icon(Icons.check_circle_rounded, color: _C.accent, size: 18),
                       ]),
                     ),
                   ),
+
+                  // Preview area
+                  if (_uploadedUrl != null) ...[
+                    const SizedBox(height: 16),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _videoController != null && _videoController!.value.isInitialized
+                          ? AspectRatio(
+                              aspectRatio: _videoController!.value.aspectRatio,
+                              child: VideoPlayer(_videoController!),
+                            )
+                          : Image.network(_uploadedUrl!, fit: BoxFit.cover, height: 200, width: double.infinity),
+                    ),
+                  ],
+
                   const SizedBox(height: 28),
 
                   // Post button
                   GestureDetector(
-                    onTap: () {
+                    onTap: () async {
+                      if (_isUploading) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please wait for media to finish uploading')));
+                        return;
+                      }
                       HapticFeedback.mediumImpact();
-                      Navigator.pop(context);
-                      // TODO: dispatch post creation logic here
+                      setState(() {});
+                      final content = _ctrl.text.trim();
+                      if (content.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Write something to post')));
+                        return;
+                      }
+                      // show a small loading indicator
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (_) => const Center(child: CircularProgressIndicator(color: _C.accent)),
+                      );
+                      
+                      final mediaList = _uploadedUrl != null ? [_uploadedUrl!] : null;
+
+                      try {
+                        final created = await AuthService().createPost(content, media: mediaList);
+                        if (mounted) {
+                          Navigator.pop(context); // close loader
+                          Navigator.pop(context, created); // close sheet
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
+                      }
                     },
                     child: Container(
                       height: 52,
@@ -1382,12 +1663,11 @@ class _FeaturedCard extends StatelessWidget {
                           color: Colors.white.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: Text(featured.badge,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1)),
+                        child: Text(normalizeString(featured.badge),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900)),
                       ),
                       const Spacer(),
                       Container(
@@ -1408,25 +1688,25 @@ class _FeaturedCard extends StatelessWidget {
                         color: Colors.white.withOpacity(0.14),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Text(featured.genre,
+                      child: Text(normalizeString(featured.genre),
                           style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 10,
                               fontWeight: FontWeight.w600)),
                     ),
                     const SizedBox(height: 5),
-                    Text(featured.title,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 23,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.6,
-                            height: 1.1)),
+                    Text(normalizeString(featured.title),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 23,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.0,
+                        height: 1.1)),
                     const SizedBox(height: 3),
-                    Text(featured.subtitle,
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.6),
-                            fontSize: 12)),
+                    Text(normalizeString(featured.subtitle),
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.6),
+                        fontSize: 12)),
                     const SizedBox(height: 12),
                     Row(children: [
                       GestureDetector(
@@ -1437,8 +1717,8 @@ class _FeaturedCard extends StatelessWidget {
                           decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(12)),
-                          child: Text(featured.cta,
-                              style: TextStyle(
+                            child: Text(normalizeString(featured.cta),
+                                style: TextStyle(
                                   color: featured.c1,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800)),
@@ -1686,8 +1966,8 @@ class _InstagramPostState extends State<_InstagramPost>
                             ]),
                             Text(
                               p.genre != null
-                                  ? '${p.handle}  ·  ${p.genre}'
-                                  : '${p.handle}  ·  ${p.ago}',
+                                  ? '${p.handle} · ${p.genre}'
+                                  : '${p.handle} · ${p.ago}',
                               style: const TextStyle(
                                   color: _C.textMuted, fontSize: 11),
                             ),
@@ -1728,12 +2008,12 @@ class _InstagramPostState extends State<_InstagramPost>
                   ),
                 ),
 
-                if (p.imageLabel != null)
+                if (p.media.isNotEmpty)
                   GestureDetector(
                     onDoubleTap: _doubleTapLike,
                     child: Stack(alignment: Alignment.center, children: [
                       _PostMedia(
-                          label: p.imageLabel!, accent: p.avatarColor),
+                          mediaUrl: p.media.first, accent: p.avatarColor),
                       if (_showHeart)
                         ScaleTransition(
                           scale: _heartScale,
@@ -1743,7 +2023,7 @@ class _InstagramPostState extends State<_InstagramPost>
                     ]),
                   ),
 
-                if (p.imageLabel == null)
+                if (p.media.isEmpty)
                   Container(
                     width: double.infinity,
                     margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
@@ -1755,7 +2035,7 @@ class _InstagramPostState extends State<_InstagramPost>
                           color: p.avatarColor.withOpacity(0.15),
                           width: 0.8),
                     ),
-                    child: Text(p.body,
+                    child: Text(normalizeString(p.body, preserveNewlines: true),
                         style: const TextStyle(
                             color: _C.textPrimary,
                             fontSize: 14,
@@ -1807,17 +2087,14 @@ class _InstagramPostState extends State<_InstagramPost>
                   child: RichText(
                     text: TextSpan(children: [
                       TextSpan(
-                        text: '${p.name.split(' ').first}  ',
+                        text: '${p.name.split(' ').first} ',
                         style: const TextStyle(
                             color: _C.textPrimary,
                             fontWeight: FontWeight.w700,
                             fontSize: 13),
                       ),
                       TextSpan(
-                        text: p.body
-                            .split('\n')
-                            .first
-                            .replaceAll(RegExp(r'\s+'), ' '),
+                        text: normalizeString(p.body.split('\n').first),
                         style: const TextStyle(
                             color: _C.textSec,
                             fontSize: 13,
@@ -1860,8 +2137,7 @@ class _InstagramPostState extends State<_InstagramPost>
                   child: Text(p.ago,
                       style: const TextStyle(
                           color: _C.textMuted,
-                          fontSize: 10.5,
-                          letterSpacing: 0.2)),
+                          fontSize: 10.5)),
                 ),
 
                 Container(height: 0.5, color: _C.cardBorder),
@@ -1876,9 +2152,9 @@ class _InstagramPostState extends State<_InstagramPost>
 //  POST MEDIA
 // ─────────────────────────────────────────────────────────────
 class _PostMedia extends StatefulWidget {
-  final String label;
+  final String mediaUrl;
   final Color accent;
-  const _PostMedia({required this.label, required this.accent});
+  const _PostMedia({required this.mediaUrl, required this.accent});
 
   @override
   State<_PostMedia> createState() => _PostMediaState();
@@ -1889,6 +2165,8 @@ class _PostMediaState extends State<_PostMedia>
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
   bool _playing = false;
+  VideoPlayerController? _videoCtrl;
+  bool _isVideo = false;
 
   @override
   void initState() {
@@ -1897,130 +2175,100 @@ class _PostMediaState extends State<_PostMedia>
         vsync: this, duration: const Duration(milliseconds: 160));
     _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
         CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+        
+    final url = widget.mediaUrl.toLowerCase();
+    if (url.endsWith('.mp4') || url.endsWith('.mov')) {
+      _isVideo = true;
+      _videoCtrl = VideoPlayerController.networkUrl(Uri.parse(widget.mediaUrl))
+        ..initialize().then((_) {
+          if (mounted) setState(() {});
+          _videoCtrl!.setVolume(1.0);
+          _videoCtrl!.setLooping(true);
+        });
+    }
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _videoCtrl?.dispose();
     super.dispose();
+  }
+
+  void _togglePlay() {
+    if (_videoCtrl != null && _videoCtrl!.value.isInitialized) {
+      setState(() {
+        if (_videoCtrl!.value.isPlaying) {
+          _videoCtrl!.pause();
+          _playing = false;
+        } else {
+          _videoCtrl!.play();
+          _playing = true;
+        }
+      });
+    }
+    HapticFeedback.lightImpact();
+    _ctrl.forward().then((_) => _ctrl.reverse());
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        setState(() => _playing = !_playing);
-        _ctrl.forward().then((_) => _ctrl.reverse());
-        HapticFeedback.lightImpact();
-      },
-      child: ScaleTransition(
-        scale: _scale,
-        child: SizedBox(
+    return ScaleTransition(
+      scale: _scale,
+      child: GestureDetector(
+        onTap: _togglePlay,
+        child: Container(
           width: double.infinity,
-          height: 300,
-          child: Stack(children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    widget.accent.withOpacity(0.18),
-                    const Color(0xFF080812),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-            ),
-            Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _FilmStrip(accent: widget.accent)),
-            Positioned.fill(
-                child: CustomPaint(painter: _GrainPainter())),
-            Center(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 280),
-                width: _playing ? 56 : 64,
-                height: _playing ? 56 : 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _playing
-                      ? widget.accent
-                      : widget.accent.withOpacity(0.18),
-                  border: Border.all(
-                      color: widget.accent.withOpacity(0.55),
-                      width: 2),
-                  boxShadow: _playing
-                      ? [
-                          BoxShadow(
-                              color: widget.accent.withOpacity(0.45),
-                              blurRadius: 22)
-                        ]
-                      : [],
-                ),
-                child: Icon(
-                    _playing
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    color: Colors.white,
-                    size: 28),
-              ),
-            ),
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(14, 30, 14, 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.78)
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                child: Row(children: [
-                  Expanded(
-                      child: Text(widget.label,
-                          style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5))),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(6),
+          margin: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0C0C18),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: widget.accent.withOpacity(0.3), width: 1.5),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: AspectRatio(
+              aspectRatio: _isVideo && _videoCtrl != null && _videoCtrl!.value.isInitialized
+                  ? _videoCtrl!.value.aspectRatio
+                  : 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_isVideo && _videoCtrl != null && _videoCtrl!.value.isInitialized)
+                    VideoPlayer(_videoCtrl!)
+                  else if (!_isVideo)
+                    Image.network(widget.mediaUrl, fit: BoxFit.cover, errorBuilder: (_,__,___) => const Center(child: Icon(Icons.broken_image, color: Colors.white54))),
+                  
+                  if (_isVideo)
+                    AnimatedOpacity(
+                      opacity: _playing ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Container(
+                        color: Colors.black45,
+                        child: Center(
+                          child: Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: widget.accent,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: widget.accent.withOpacity(0.5),
+                                  blurRadius: 12,
+                                )
+                              ],
+                            ),
+                            child: const Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 28),
+                          ),
+                        ),
+                      ),
                     ),
-                    child: const Text('2:34',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700)),
-                  ),
-                ]),
+                ],
               ),
             ),
-            Positioned(
-              top: 30,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.45),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.fullscreen_rounded,
-                    color: Colors.white70, size: 16),
-              ),
-            ),
-          ]),
+          ),
         ),
       ),
     );

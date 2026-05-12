@@ -36,7 +36,7 @@ class AppConfig {
   /// Local development — points to local Node.js backend.
   factory AppConfig.dev() => const AppConfig._(
         environment: Environment.dev,
-        apiBaseUrl: 'https://cinehub-qltm.onrender.com',
+        apiBaseUrl: 'http://localhost:4000',
         geminiApiKey: String.fromEnvironment(
           'GEMINI_KEY',
           defaultValue: '',

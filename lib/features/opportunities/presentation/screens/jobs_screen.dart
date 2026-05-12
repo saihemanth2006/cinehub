@@ -5,6 +5,7 @@ import '../../../../core/theme/theme.dart';
 import '../../../../shared/widgets/inputs/inputs.dart';
 import '../../../../shared/widgets/chips/chips.dart';
 import '../../../../shared/widgets/cards/cards.dart';
+import '../../../../../screens/jobs/jobs_page.dart';
 
 class JobsScreen extends StatefulWidget {
   const JobsScreen({super.key});
@@ -14,7 +15,7 @@ class JobsScreen extends StatefulWidget {
 
 class _JobsScreenState extends State<JobsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  int _selectedFilter = 0;
+  final int _selectedFilter = 0;
   final _filters = ['All', 'Director', 'DOP', 'Editor', 'Writer', 'Actor', 'VFX'];
 
   @override
@@ -52,11 +53,8 @@ class _JobsScreenState extends State<JobsScreen> with SingleTickerProviderStateM
         body: TabBarView(
           controller: _tabController,
           children: [
-            _BrowseTab(
-              filters: _filters,
-              selectedFilter: _selectedFilter,
-              onFilterChanged: (i) => setState(() => _selectedFilter = i),
-            ),
+            // Use the centralized JobsPage which now consumes realtime data
+            const JobsPage(),
             _EmptyTab(icon: Iconsax.document, label: 'No applications yet'),
             _EmptyTab(icon: Iconsax.bookmark, label: 'No saved jobs'),
           ],

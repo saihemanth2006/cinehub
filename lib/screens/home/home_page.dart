@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/di/providers.dart';
 import 'dart:math';
 import 'dart:async';
 import '../../models/models.dart';
@@ -43,7 +45,9 @@ class _Featured {
 }
 
 class _Post {
+  final String? id;
   final String name, handle, ago, body;
+  final String? avatarUrl;
   final String? imageLabel;
   final Color avatarColor;
   final bool verified, filmmaker;
@@ -54,10 +58,12 @@ class _Post {
   bool liked, bookmarked, following;
 
   _Post({
+    this.id,
     required this.name,
     required this.handle,
     required this.ago,
     required this.body,
+    this.avatarUrl,
     this.imageLabel,
     required this.avatarColor,
     this.verified = false,
@@ -77,7 +83,7 @@ class _Post {
 // ─────────────────────────────────────────────────────────────
 //  HOME PAGE
 // ─────────────────────────────────────────────────────────────
-class HomePage extends StatefulWidget {
+class HomePage extends ConsumerStatefulWidget {
   final VoidCallback? onNavigateToMessages;
   final int unreadMessages;
   final List<ProfileData> allProfiles;
@@ -90,10 +96,10 @@ class HomePage extends StatefulWidget {
   });
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
+class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMixin {
   // Search
   bool _searchExpanded = true;
   final _searchCtrl = TextEditingController();
@@ -122,6 +128,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // Feed
   final _scrollCtrl = ScrollController();
   late List<_Post> _posts;
+  StreamSubscription<List<Map<String, dynamic>>>? _postsSub;
   bool _loadingMore = false;
 
   // Animations
@@ -197,6 +204,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         vsync: this, duration: const Duration(milliseconds: 1800))
       ..repeat(reverse: true);
     _posts = _buildPosts();
+    // subscribe to postsStream after first frame to have ref available
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final socket = ref.read(socketServiceProvider);
+      _postsSub = socket.postsStream.listen((list) {
+        if (!mounted) return;
+        setState(() {
+          // map incoming backend post maps to local _Post model where possible
+          _posts = list.map((m) => _mapBackendToPost(m)).toList();
+        });
+      });
+    });
     _scrollCtrl.addListener(_onScroll);
     _startAutoScroll();
   }
@@ -349,6 +367,51 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
+  // Map backend post map -> local _Post model (defensive mapping)
+  _Post _mapBackendToPost(Map<String, dynamic> m) {
+    String name = (m['authorName'] ?? m['name'] ?? 'Unknown') as String;
+    String handle = (m['handle'] ?? m['username'] ?? '@user') as String;
+    String body = (m['content'] ?? m['body'] ?? '') as String;
+    final imageLabel = (m['media'] is List && (m['media'] as List).isNotEmpty) ? (m['media'] as List).first.toString() : (m['imageLabel']);
+    final colorHex = m['avatarColor'] is String ? int.tryParse(m['avatarColor'].toString().replaceFirst('#', ''), radix: 16) : null;
+    final avatar = colorHex != null ? Color(0xFF000000 | colorHex) : const Color(0xFF7C3AED);
+    final verified = (m['verified'] ?? m['v'] ?? false) as bool;
+    final filmmaker = (m['filmmaker'] ?? m['f'] ?? false) as bool;
+    final tags = (m['tags'] is List) ? List<String>.from((m['tags'] as List).map((e) => e.toString())) : <String>[];
+    final likes = m['likes'] is int ? m['likes'] as int : (m['likeCount'] is int ? m['likeCount'] as int : 0);
+    final comments = m['comments'] is int ? m['comments'] as int : 0;
+    final shares = m['shares'] is int ? m['shares'] as int : 0;
+    final views = m['views'] is int ? m['views'] as int : 0;
+    final ago = m['posted'] is String ? m['posted'] as String : (m['ago'] is String ? m['ago'] as String : '1h');
+
+    final avatarUrl = (m['avatarUrl'] ?? m['avatar'] ?? m['authorAvatar'])?.toString();
+    final id = (m['id'] ?? m['postId'] ?? m['_id'])?.toString();
+    final following = (m['following'] ?? m['isFollowing'] ?? false) as bool;
+    final likedFlag = (m['liked'] ?? m['isLiked'] ?? false) as bool;
+    final bookmarkedFlag = (m['bookmarked'] ?? m['isBookmarked'] ?? false) as bool;
+    return _Post(
+      id: id,
+      name: name,
+      handle: handle,
+      ago: ago,
+      body: body,
+      avatarUrl: avatarUrl,
+      imageLabel: imageLabel,
+      avatarColor: avatar,
+      verified: verified,
+      filmmaker: filmmaker,
+      genre: m['genre'] is String ? m['genre'] as String : null,
+      tags: tags,
+      likes: likes,
+      comments: comments,
+      shares: shares,
+      views: views,
+      liked: likedFlag,
+      bookmarked: bookmarkedFlag,
+      following: following,
+    );
+  }
+
   List<ProfileData> get _searchResults {
     if (_query.isEmpty) return [];
     final q = _query.toLowerCase();
@@ -363,6 +426,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _postsSub?.cancel();
     _autoTimer?.cancel();
     _pageCtrl.dispose();
     _shimmer.dispose();
@@ -413,7 +477,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 }
                                 final p = _posts[i];
                                 return _InstagramPost(
-                                  key: ValueKey('post_$i'),
+                                  key: ValueKey(p.id ?? 'post_${p.hashCode}_$i'),
                                   post: p,
                                   index: i,
                                   onLike: () => setState(() {
@@ -1689,23 +1753,40 @@ class _InstagramPostState extends State<_InstagramPost>
                               : const LinearGradient(
                                   colors: [_C.cardBorder, _C.cardBorder]),
                         ),
-                        child: Container(
+                          child: Container(
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: p.avatarColor,
-                            border:
-                                Border.all(color: _C.card, width: 2),
+                            border: Border.all(color: _C.card, width: 2),
                           ),
-                          child: Center(
-                            child: Text(
-                              p.name[0],
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 17),
-                            ),
+                          child: ClipOval(
+                            child: p.avatarUrl != null
+                                ? Image.network(
+                                    p.avatarUrl!,
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Center(
+                                      child: Text(
+                                        p.name.isNotEmpty ? p.name[0] : '?',
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 17),
+                                      ),
+                                    ),
+                                  )
+                                : Center(
+                                    child: Text(
+                                      p.name.isNotEmpty ? p.name[0] : '?',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 17),
+                                    ),
+                                  ),
                           ),
                         ),
                       ),
@@ -1990,18 +2071,39 @@ class _PostMediaState extends State<_PostMedia>
           width: double.infinity,
           height: 300,
           child: Stack(children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    widget.accent.withOpacity(0.18),
-                    const Color(0xFF080812),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            // If label looks like an image URL, show it; otherwise keep stylized media
+            if (widget.label.startsWith('http'))
+              Positioned.fill(
+                child: Image.network(
+                  widget.label,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          widget.accent.withOpacity(0.18),
+                          const Color(0xFF080812),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      widget.accent.withOpacity(0.18),
+                      const Color(0xFF080812),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                 ),
               ),
-            ),
             Positioned(
                 top: 0,
                 left: 0,

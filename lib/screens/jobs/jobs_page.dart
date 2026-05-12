@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/di/providers.dart';
 
 class JobsPage extends StatefulWidget {
   const JobsPage({super.key});
@@ -27,118 +29,9 @@ class _JobsPageState extends State<JobsPage> {
     'Editing', 'Writing', 'Production', 'VFX'
   ];
 
-  static const _jobs = [
-    (
-      title: 'Lead Actor – Feature Film',
-      company: 'Red Curtain Productions',
-      location: 'Mumbai, MH',
-      type: 'On-site',
-      pay: '₹2L–₹5L',
-      category: 'Acting',
-      icon: Icons.theater_comedy_rounded,
-      color1: Color(0xFF7B5CFF),
-      color2: Color(0xFF3A1FA0),
-      urgent: true,
-      posted: '2h ago',
-    ),
-    (
-      title: 'Cinematographer – OTT Series',
-      company: 'StreamVision Studios',
-      location: 'Hyderabad, TS',
-      type: 'Contract',
-      pay: '₹80k/mo',
-      category: 'Cinematography',
-      icon: Icons.camera_rounded,
-      color1: Color(0xFF00BFA5),
-      color2: Color(0xFF004D40),
-      urgent: false,
-      posted: '5h ago',
-    ),
-    (
-      title: 'Screenplay Writer – Thriller',
-      company: 'Noir Pictures',
-      location: 'Remote',
-      type: 'Freelance',
-      pay: '₹50k–₹1.2L',
-      category: 'Writing',
-      icon: Icons.edit_note_rounded,
-      color1: Color(0xFFFF3D6B),
-      color2: Color(0xFF8B0024),
-      urgent: false,
-      posted: '1d ago',
-    ),
-    (
-      title: 'Assistant Director – Short Film',
-      company: 'Indie Frames Co.',
-      location: 'Delhi, DL',
-      type: 'On-site',
-      pay: '₹25k–₹40k',
-      category: 'Direction',
-      icon: Icons.movie_filter_rounded,
-      color1: Color(0xFFFFA726),
-      color2: Color(0xFF6D3400),
-      urgent: true,
-      posted: '3h ago',
-    ),
-    (
-      title: 'VFX Artist – Sci-Fi Feature',
-      company: 'Pixel Storm VFX',
-      location: 'Bengaluru, KA',
-      type: 'Hybrid',
-      pay: '₹60k–₹1.5L',
-      category: 'VFX',
-      icon: Icons.auto_fix_high_rounded,
-      color1: Color(0xFF00D4FF),
-      color2: Color(0xFF003356),
-      urgent: false,
-      posted: '2d ago',
-    ),
-    (
-      title: 'Video Editor – Documentary',
-      company: 'RealLens Films',
-      location: 'Remote',
-      type: 'Freelance',
-      pay: '₹30k–₹60k',
-      category: 'Editing',
-      icon: Icons.cut_rounded,
-      color1: Color(0xFF7C3AED),
-      color2: Color(0xFF2E1065),
-      urgent: false,
-      posted: '4h ago',
-    ),
-    (
-      title: 'Line Producer – Ad Films',
-      company: 'Bolt Creative Agency',
-      location: 'Mumbai, MH',
-      type: 'On-site',
-      pay: '₹70k–₹1L',
-      category: 'Production',
-      icon: Icons.playlist_add_check_rounded,
-      color1: Color(0xFFBE185D),
-      color2: Color(0xFF500724),
-      urgent: true,
-      posted: '6h ago',
-    ),
-  ];
-
-  List<Map<String, dynamic>> get _filtered {
-    return _jobs
-        .where((j) =>
-            _selectedFilter == 'All' || j.category == _selectedFilter)
-        .map((j) => {
-              'title': j.title,
-              'company': j.company,
-              'location': j.location,
-              'type': j.type,
-              'pay': j.pay,
-              'category': j.category,
-              'icon': j.icon,
-              'color1': j.color1,
-              'color2': j.color2,
-              'urgent': j.urgent,
-              'posted': j.posted,
-            })
-        .toList();
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override
@@ -288,14 +181,32 @@ class _JobsPageState extends State<JobsPage> {
 
             const SizedBox(height: 10),
 
-            // ── Job listings ──────────────────────────────────
+            // ── Job listings (realtime) ─────────────────────────
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                physics: const BouncingScrollPhysics(),
-                itemCount: _filtered.length,
-                itemBuilder: (_, i) =>
-                    _JobCard(job: _filtered[i], index: i),
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final socket = ref.watch(socketServiceProvider);
+                  return StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: socket.jobsStream,
+                    builder: (context, snap) {
+                      final jobs = snap.data ?? [];
+                      if (snap.connectionState == ConnectionState.waiting && jobs.isEmpty) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (jobs.isEmpty) {
+                        return const Center(child: Text('No opportunities available'));
+                      }
+
+                      return ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: jobs.length,
+                        itemBuilder: (_, i) => _JobCard(job: jobs[i], index: i),
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ],
@@ -391,9 +302,9 @@ class _JobCardState extends State<_JobCard>
   @override
   Widget build(BuildContext context) {
     final j = widget.job;
-    final c1 = j['color1'] as Color;
-    final c2 = j['color2'] as Color;
-    final urgent = j['urgent'] as bool;
+    final c1 = j['color1'] is Color ? j['color1'] as Color : _accent;
+    final c2 = j['color2'] is Color ? j['color2'] as Color : _cardBorder;
+    final urgent = j['urgent'] is bool ? j['urgent'] as bool : false;
 
     return FadeTransition(
       opacity: _fade,
@@ -434,7 +345,7 @@ class _JobCardState extends State<_JobCard>
                             LinearGradient(colors: [c1, c2]),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Icon(j['icon'] as IconData,
+                        child: Icon(j['icon'] is IconData ? j['icon'] as IconData : Icons.work_outline_rounded,
                           color: Colors.white, size: 22),
                     ),
                     const SizedBox(width: 12),
@@ -446,7 +357,7 @@ class _JobCardState extends State<_JobCard>
                         children: [
                           Row(children: [
                             Flexible(
-                              child: Text(j['title'] as String,
+                              child: Text(j['title'] is String ? j['title'] as String : 'Untitled',
                                   style: const TextStyle(
                                       color: _textPrimary,
                                       fontSize: 14,
@@ -483,7 +394,7 @@ class _JobCardState extends State<_JobCard>
                             ]
                           ]),
                           const SizedBox(height: 3),
-                          Text(j['company'] as String,
+                          Text(j['company'] is String ? j['company'] as String : '',
                               style: TextStyle(
                                   color: c1,
                                   fontSize: 12,
@@ -535,17 +446,17 @@ class _JobCardState extends State<_JobCard>
                   runSpacing: 6,
                   children: [
                     _Tag(
-                        icon: Icons.location_on_outlined,
-                        label: j['location'] as String,
-                        color: _textSec),
+                      icon: Icons.location_on_outlined,
+                      label: j['location'] is String ? j['location'] as String : 'Unknown',
+                      color: _textSec),
                     _Tag(
-                        icon: Icons.schedule_rounded,
-                        label: j['type'] as String,
-                        color: c1),
+                      icon: Icons.schedule_rounded,
+                      label: j['type'] is String ? j['type'] as String : 'Unknown',
+                      color: c1),
                     _Tag(
-                        icon: Icons.currency_rupee_rounded,
-                        label: j['pay'] as String,
-                        color: _textSec),
+                      icon: Icons.currency_rupee_rounded,
+                      label: j['pay'] is String ? j['pay'] as String : '-',
+                      color: _textSec),
                   ],
                 ),
 
@@ -553,7 +464,7 @@ class _JobCardState extends State<_JobCard>
 
                 // ── Apply row ───────────────────────────────
                 Row(children: [
-                  Text(j['posted'] as String,
+                  Text(j['posted'] is String ? j['posted'] as String : '',
                       style: const TextStyle(
                           color: _textMuted, fontSize: 11)),
                   const Spacer(),

@@ -32,6 +32,7 @@ class CineHubApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       useInheritedMediaQuery: true,
+      locale: DevicePreview.locale(context),
       builder: DevicePreview.appBuilder,
       theme: ThemeData(
         brightness: Brightness.dark,
